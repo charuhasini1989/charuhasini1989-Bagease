@@ -1,9 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useNavigate, Link } from 'react-router-dom'; // Import Link
+import { useNavigate } from 'react-router-dom'; // Remove Link import if no longer needed elsewhere
 import { supabase } from '../supabase';
 
 // --- Reusable Green Checkmark Component ---
-// ... (GreenCheckmark component remains the same) ...
 const GreenCheckmark = () => (
     <svg /* ... SVG code ... */
       className="w-20 h-20 sm:w-24 sm:h-24 text-green-500"
@@ -16,22 +15,33 @@ const GreenCheckmark = () => (
 
 
 // --- Simple Prompt Component ---
-const PleaseLoginPrompt = () => (
-    <div className="flex justify-center items-center min-h-[calc(100vh-200px)]"> {/* Adjust min-height as needed */}
-        <div className="bg-white p-8 rounded-lg shadow-md text-center max-w-md mx-auto">
-            <h2 className="text-2xl font-bold text-gray-800 mb-4">Authentication Required</h2>
-            <p className="text-gray-600 mb-6">
-                You need to be logged in to access the booking page. Please log in or sign up to continue.
-            </p>
-            <Link
-                to="../components/Sidebar.tsk"
-                className="inline-block px-6 py-2 bg-[#ff8c00] text-white font-medium rounded-md hover:bg-[#e07b00] transition duration-150 ease-in-out"
-            >
-                Go to Login
-            </Link>
+// *** MODIFIED PleaseLoginPrompt ***
+const PleaseLoginPrompt = () => {
+    // Function to dispatch the custom event
+    const handleOpenSidebar = () => {
+        const event = new CustomEvent('openLoginSidebar');
+        window.dispatchEvent(event);
+    };
+
+    return (
+        <div className="flex justify-center items-center min-h-[calc(100vh-200px)]"> {/* Adjust min-height as needed */}
+            <div className="bg-white p-8 rounded-lg shadow-md text-center max-w-md mx-auto">
+                <h2 className="text-2xl font-bold text-gray-800 mb-4">Authentication Required</h2>
+                <p className="text-gray-600 mb-6">
+                    You need to be logged in to access the booking page. Please log in or sign up to continue.
+                </p>
+                {/* Changed Link to button and added onClick */}
+                <button
+                    type="button" // Good practice for buttons not submitting forms
+                    onClick={handleOpenSidebar} // Call the function to open sidebar
+                    className="inline-block px-6 py-2 bg-[#ff8c00] text-white font-medium rounded-md hover:bg-[#e07b00] transition duration-150 ease-in-out cursor-pointer" // Added cursor-pointer
+                >
+                    Go to Login
+                </button>
+            </div>
         </div>
-    </div>
-);
+    );
+};
 
 
 // --- Main Booking Component ---
@@ -40,7 +50,6 @@ const Book = () => {
 
     // --- State ---
     const [bookingData, setBookingData] = useState({
-        // ... (Keep existing state properties) ...
         name: '', phone: '', email: '', pickupLocationType: '', pickupAddress: '',
         dropLocationType: '', dropAddress: '', pickupDate: '', pickupTime: '',
         trainNumber: '', trainName: '', pnrNumber: '', coachNumber: '', seatNumber: '',
@@ -52,8 +61,8 @@ const Book = () => {
     const [errors, setErrors] = useState<Record<string, string>>({});
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [submitError, setSubmitError] = useState<string | null>(null);
-    const [isLoadingAuth, setIsLoadingAuth] = useState(true); // Start loading
-    const [isAuthenticated, setIsAuthenticated] = useState(false); // <-- NEW State: Track auth status
+    const [isLoadingAuth, setIsLoadingAuth] = useState(true);
+    const [isAuthenticated, setIsAuthenticated] = useState(false);
     const [isSubmitSuccess, setIsSubmitSuccess] = useState(false);
     // const [fetchedTrainDetails, setFetchedTrainDetails] = useState(null);
 
@@ -62,6 +71,9 @@ const Book = () => {
         let isMounted = true;
 
         const checkUserSession = async () => {
+            // Keep setIsLoadingAuth(true) at the start of the effect if needed
+            // setIsLoadingAuth(true); // Already set initially
+
             try {
                 const { data: { session }, error } = await supabase.auth.getSession();
 
@@ -69,89 +81,82 @@ const Book = () => {
 
                 if (error) {
                     console.error("Error checking Supabase session:", error.message);
-                    setIsAuthenticated(false); // <-- Set auth state
-                    setIsLoadingAuth(false);   // <-- Finish loading
-                    // Optionally set an error state here to show a generic error message
-                    return;
-                }
-
-                if (!session) {
+                    setIsAuthenticated(false);
+                } else if (!session) {
                     console.log("User not authenticated.");
-                    setIsAuthenticated(false); // <-- Set auth state
-                    setIsLoadingAuth(false);   // <-- Finish loading
-                    // *** REMOVED navigate('/login') from here ***
+                    setIsAuthenticated(false);
                 } else {
                     console.log("User authenticated.");
-                    setIsAuthenticated(true); // <-- Set auth state
+                    setIsAuthenticated(true);
                     setBookingData(prev => ({
                         ...prev,
                         email: prev.email || session.user?.email || '',
                         name: prev.name || session.user?.user_metadata?.full_name || ''
                     }));
-                    setIsLoadingAuth(false); // <-- Finish loading
                 }
             } catch (err) {
                  if (!isMounted) return;
                  console.error("Unexpected error during auth check:", err);
-                 setIsAuthenticated(false); // <-- Set auth state on error
-                 setIsLoadingAuth(false);   // <-- Finish loading
-                 // Optionally set an error state
+                 setIsAuthenticated(false);
+            } finally {
+                // Ensure loading state is turned off regardless of outcome
+                if (isMounted) {
+                   setIsLoadingAuth(false);
+                }
             }
         };
 
         checkUserSession();
 
-        // Listener remains mostly the same: handles LOGOUTS *after* initial check
         const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
-             // If the component is still mounted, not loading, AND the session disappears
-             if (isMounted && !session && !isLoadingAuth) {
-                console.log("Auth state changed: No session found. Updating UI.");
-                setIsAuthenticated(false); // Update the state to show the prompt
-                // Optionally: Could still navigate here if desired for logout events
-                // setIsLoadingAuth(true); // Maybe set loading briefly before UI change? Optional.
-                // navigate('/login');
+            // Only update if component is still mounted and auth check isn't actively running
+            if (isMounted && !isLoadingAuth) {
+                 const currentlyAuth = !!session; // Convert session presence to boolean
+                 if (currentlyAuth !== isAuthenticated) { // Only update state if it changes
+                    console.log(`Auth state changed: User is now ${currentlyAuth ? 'authenticated' : 'not authenticated'}. Updating UI.`);
+                    setIsAuthenticated(currentlyAuth);
+                    if (currentlyAuth && session) {
+                        // Update user details if newly authenticated
+                         setBookingData(prev => ({
+                            ...prev,
+                            email: prev.email || session.user?.email || '',
+                            name: prev.name || session.user?.user_metadata?.full_name || ''
+                        }));
+                    } else if (!currentlyAuth) {
+                        // Optionally clear sensitive form fields on logout?
+                        // setBookingData(prev => ({ ...prev, name: '', email: '' })); // Example
+                    }
+                 }
             }
-             // Handle user logging IN in another tab while this page is open
-             else if (isMounted && session && !isLoadingAuth && !isAuthenticated) {
-                 console.log("Auth state changed: Session found. Updating UI.");
-                 setIsAuthenticated(true); // Update state to show form
-                 // Re-fetch user details if needed, or just let the form show
-                  setBookingData(prev => ({
-                        ...prev,
-                        email: prev.email || session.user?.email || '',
-                        name: prev.name || session.user?.user_metadata?.full_name || ''
-                    }));
-             }
         });
 
         return () => {
             isMounted = false;
             authListener?.subscription.unsubscribe();
         };
-        // Dependencies remain the same, as navigate isn't directly used in the check logic now
-    }, [navigate, isLoadingAuth, isAuthenticated]); // Added isLoadingAuth and isAuthenticated to dependencies for listener logic
+        // Dependencies: Rerun effect if navigate changes (unlikely but good practice)
+        // Rerun listener logic check if isLoadingAuth or isAuthenticated changes
+    }, [navigate, isLoadingAuth, isAuthenticated]); // Keep dependencies
 
 
     // ... (getMinDateTime, validateForm, handleChange, handlePnrFetch, handleSubmit remain the same) ...
-      // --- Get Current Date and Time for Min Values ---
-    const getMinDateTime = useCallback(() => { // useCallback added
+       // --- Get Current Date and Time for Min Values ---
+    const getMinDateTime = useCallback(() => {
         const now = new Date();
         const today = now.toISOString().split('T')[0];
         now.setHours(now.getHours() + 1); // 1-hour buffer
         const minTime = now.toTimeString().split(' ')[0].substring(0, 5);
         return { minDate: today, minTimeForToday: minTime };
-    }, []); // No dependencies needed for this calculation logic
+    }, []);
     const { minDate, minTimeForToday } = getMinDateTime();
 
 
     // --- Validation Function ---
-    // Wrap with useCallback and add dependencies
     const validateForm = useCallback((): boolean => {
         const newErrors: Record<string, string> = {};
         const data = bookingData;
 
-        // ... (Keep existing validation logic) ...
-         // 1. User Info
+        // 1. User Info
         if (!data.name.trim()) newErrors.name = 'Full Name is required';
         if (!data.phone.trim()) newErrors.phone = 'Phone number is required';
         else if (!/^\+?[\d\s-]{10,15}$/.test(data.phone)) newErrors.phone = 'Enter a valid phone number';
@@ -165,7 +170,7 @@ const Book = () => {
         if (!data.dropAddress.trim()) newErrors.dropAddress = 'Drop-off address/location name is required';
         if (!data.pickupDate) newErrors.pickupDate = 'Pickup date is required';
         else {
-             const selectedDate = new Date(data.pickupDate + 'T00:00:00'); // Ensure time is neutral for comparison
+             const selectedDate = new Date(data.pickupDate + 'T00:00:00');
              const today = new Date(minDate + 'T00:00:00');
              if (selectedDate < today) newErrors.pickupDate = 'Pickup date cannot be in the past';
         }
@@ -197,7 +202,7 @@ const Book = () => {
 
         setErrors(newErrors);
         return Object.keys(newErrors).length === 0;
-    }, [bookingData, minDate, minTimeForToday]); // Add dependencies for validation
+    }, [bookingData, minDate, minTimeForToday]);
 
 
     // --- Handle Change ---
@@ -211,56 +216,54 @@ const Book = () => {
             setBookingData(prevData => ({ ...prevData, [name]: value }));
         }
 
-        // Clear the specific error when the user modifies the field
-        // Use functional update for safety if validation runs concurrently (though unlikely here)
         setErrors(prevErrors => {
-            if (!prevErrors[name]) return prevErrors; // No error, no change needed
+            if (!prevErrors[name]) return prevErrors;
             const updatedErrors = { ...prevErrors };
             delete updatedErrors[name];
             return updatedErrors;
         });
-    }, []); // No dependencies needed if it only uses e.target and setBookingData/setErrors
+    }, []);
 
     // --- Handle PNR Fetch (Placeholder) ---
-    const handlePnrFetch = useCallback(async () => { // Added useCallback
+    const handlePnrFetch = useCallback(async () => {
         if (!bookingData.pnrNumber || !/^\d{10}$/.test(bookingData.pnrNumber)) {
             setErrors(prev => ({...prev, pnrNumber: 'Enter a valid 10-digit PNR to fetch details'}));
             return;
         }
         alert(`TODO: Implement API call to fetch details for PNR: ${bookingData.pnrNumber}`);
-        // ... (rest of the placeholder logic) ...
-    }, [bookingData.pnrNumber]); // Depends on PNR number
+        // Placeholder logic - replace with actual API call
+        // try {
+        //   // const details = await fetchPnrDetails(bookingData.pnrNumber);
+        //   // setFetchedTrainDetails(details);
+        //   // setBookingData(prev => ({ ...prev, trainName: details.trainName, ... }));
+        // } catch (error) {
+        //   setErrors(prev => ({ ...prev, pnrNumber: 'Failed to fetch PNR details.' }));
+        // }
+    }, [bookingData.pnrNumber]);
 
 
     // --- Handle Submit ---
     const handleSubmit = useCallback(async (e: React.FormEvent) => {
         e.preventDefault();
-        // Ensure user is authenticated before even validating/submitting
         if (!isAuthenticated) {
              setSubmitError("You must be logged in to submit a booking.");
-             return; // Prevent submission if not authenticated
+             return;
         }
 
         setSubmitError(null);
         setIsSubmitSuccess(false);
 
 
-        if (validateForm()) { // Call validation function
+        if (validateForm()) {
             setIsSubmitting(true);
             try {
-                // No need to call getUser again, auth status already checked
-                // But we *do* need the user ID for the insert. Fetch it just in case,
-                // although it should be available if isAuthenticated is true.
                  const { data: { user } } = await supabase.auth.getUser();
                  if (!user) {
-                     // Should not happen if isAuthenticated is true, but handle defensively
                      throw new Error("Authentication session lost. Please log in again.");
                  }
 
-
-                // Prepare data for Supabase (MATCH YOUR COLUMN NAMES)
                 const dataToSubmit = {
-                    user_id: user.id, // Use the fetched user ID
+                    user_id: user.id,
                     name: bookingData.name.trim(),
                     phone: bookingData.phone.trim(),
                     email: bookingData.email.trim(),
@@ -282,8 +285,8 @@ const Book = () => {
                     insurance_requested: bookingData.insuranceRequested,
                     service_type: bookingData.serviceType,
                     payment_mode: bookingData.paymentMode,
-                    booking_status: 'Pending', // Default status
-                    // estimated_cost: 0, // Placeholder - calculate if needed
+                    booking_status: 'Pending',
+                    // estimated_cost: 0,
                 };
 
                 console.log("Submitting to Supabase:", dataToSubmit);
@@ -294,15 +297,14 @@ const Book = () => {
 
                 if (error) {
                     console.error('Supabase booking insert error:', error);
-                    setSubmitError(`Booking failed: ${error.message}. Please try again or contact support.`);
+                    setSubmitError(`Booking failed: ${error.message}. Please try again.`);
                     setIsSubmitting(false);
                 } else {
                     console.log('Booking successful!');
-                    setIsSubmitSuccess(true); // Show success overlay
+                    setIsSubmitSuccess(true);
 
                     setTimeout(() => {
-                       // Reset form state completely
-                       setBookingData({
+                       setBookingData({ // Reset form
                             name: '', phone: '', email: '', pickupLocationType: '', pickupAddress: '',
                             dropLocationType: '', dropAddress: '', pickupDate: '', pickupTime: '',
                             trainNumber: '', trainName: '', pnrNumber: '', coachNumber: '', seatNumber: '',
@@ -314,19 +316,17 @@ const Book = () => {
                         setSubmitError(null);
                         setIsSubmitSuccess(false);
                         setIsSubmitting(false);
-                         // Maybe redirect to 'My Bookings' or dashboard
-                        // navigate('/my-bookings');
-                    }, 3000); // Show success for 3 seconds
+                        // navigate('/my-bookings'); // Optional redirect
+                    }, 3000);
                 }
             } catch (err: any) {
                 console.error('Error during submission process:', err);
-                setSubmitError(err.message || 'An unexpected error occurred during submission.');
+                setSubmitError(err.message || 'An unexpected error occurred.');
                 setIsSubmitting(false);
             }
         } else {
             console.log("Validation failed", errors);
              setSubmitError("Please fix the errors marked in the form.");
-             // Focus first error field
              const firstErrorKey = Object.keys(errors)[0];
              if (firstErrorKey) {
                  const element = document.getElementById(firstErrorKey);
@@ -334,19 +334,17 @@ const Book = () => {
                  element?.scrollIntoView({ behavior: 'smooth', block: 'center' });
              }
         }
-    // Add dependencies for handleSubmit
-    }, [bookingData, validateForm, navigate, isAuthenticated]); // <-- Added isAuthenticated
+    }, [bookingData, validateForm, navigate, isAuthenticated]);
 
 
     // --- Render Logic ---
 
-    // 1. Show loading indicator while checking auth
+    // 1. Loading state
     if (isLoadingAuth) {
         return (
           <div className="flex justify-center items-center min-h-screen bg-gray-50">
             <div className="text-center">
                  <svg className="animate-spin h-10 w-10 text-[#ff8c00] mx-auto mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    {/* ... spinner SVG ... */}
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                  </svg>
@@ -356,44 +354,38 @@ const Book = () => {
         );
     }
 
-    // 2. Show "Please Login" prompt if *not* loading and *not* authenticated
+    // 2. Not authenticated -> Show Prompt (using the modified component)
     if (!isAuthenticated) {
-        return <PleaseLoginPrompt />;
+        return <PleaseLoginPrompt />; // This now has the button with the correct onClick
     }
 
-    // 3. Show success overlay if submission was successful (and user is authenticated)
+    // 3. Submission Success Overlay
     if (isSubmitSuccess) {
         return (
           <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-green-50 text-center p-4">
-            {/* ... (Success overlay content) ... */}
              <GreenCheckmark />
             <h2 className="mt-6 text-2xl sm:text-3xl font-bold text-green-700">Booking Confirmed!</h2>
-            <p className="mt-2 text-lg text-gray-600">Your BagEase booking is successful. You will receive details shortly.</p>
+            <p className="mt-2 text-lg text-gray-600">Your BagEase booking is successful. Check your bookings page for details.</p>
+            {/* Maybe add a button to go to 'My Bookings' */}
+             {/* <button onClick={() => navigate('/my-bookings')} className="mt-4 px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">View My Bookings</button> */}
           </div>
         );
     }
 
-    // 4. Render the actual form if *not* loading, *is* authenticated, and *not* currently showing success
-    // Helper for input/select props
+    // 4. Authenticated, show the form
     const commonInputProps = (name: keyof typeof bookingData, isRequired = true) => ({
-        // ... (commonInputProps definition remains the same) ...
          id: name,
         name: name,
         onChange: handleChange,
         className: `mt-1 block w-full px-3 py-2 bg-white border ${errors[name] ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm focus:outline-none focus:ring-1 focus:ring-[#ff8c00] focus:border-[#ff8c00] sm:text-sm disabled:bg-gray-100 disabled:cursor-not-allowed`,
         disabled: isSubmitting,
-        // Avoid using HTML5 required when using JS validation + noValidate
-        // required: isRequired,
         'aria-invalid': errors[name] ? "true" : "false",
         'aria-describedby': errors[name] ? `${name}-error` : undefined,
     });
 
     return (
-        // --- Main Container ---
         <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
             <div className="max-w-3xl mx-auto">
-                 {/* --- Header --- */}
-                {/* ... (Header remains the same) ... */}
                  <h1 className="text-center text-3xl font-extrabold text-gray-900 mb-2">
                     Book Your BagEase Service
                 </h1>
@@ -401,12 +393,9 @@ const Book = () => {
                     Fill in the details below to arrange your baggage transfer.
                 </p>
 
-                {/* --- Form Start --- */}
                 <form onSubmit={handleSubmit} noValidate className="bg-white p-6 sm:p-8 rounded-lg shadow-lg space-y-8">
-                    {/* ... (Rest of the form JSX remains the same) ... */}
-
                      {/* General Submission Error */}
-                    {submitError && ( // Show only if there's an error message
+                    {submitError && (
                         <div className="p-3 bg-red-100 border-l-4 border-red-500 text-red-700 rounded-md text-sm" role="alert">
                             <p className="font-bold">Oops! Something went wrong.</p>
                             <p>{submitError}</p>
@@ -418,7 +407,8 @@ const Book = () => {
                         <legend className="text-lg font-semibold text-gray-800 border-b border-gray-200 pb-2 mb-4">
                             1. Your Contact Information
                         </legend>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {/* ... Name, Phone, Email inputs ... */}
+                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div>
                                 <label htmlFor="name" className="block text-sm font-medium text-gray-700">Full Name</label>
                                 <input type="text" {...commonInputProps('name', true)} value={bookingData.name} placeholder="e.g., Priya Sharma" autoComplete="name" />
@@ -442,8 +432,8 @@ const Book = () => {
                          <legend className="text-lg font-semibold text-gray-800 border-b border-gray-200 pb-2 mb-4">
                             2. Pickup & Drop-Off Details
                         </legend>
-
-                        {/* Pickup Location */}
+                         {/* ... Pickup, Dropoff, Date, Time, Train, PNR, Coach, Seat, Preference inputs ... */}
+                          {/* Pickup Location */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div>
                                 <label htmlFor="pickupLocationType" className="block text-sm font-medium text-gray-700">Pickup From</label>
@@ -572,7 +562,8 @@ const Book = () => {
                         <legend className="text-lg font-semibold text-gray-800 border-b border-gray-200 pb-2 mb-4">
                             3. Luggage Details
                         </legend>
-                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        {/* ... Bags, Weight, Special Items, Insurance inputs ... */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div>
                                 <label htmlFor="numberOfBags" className="block text-sm font-medium text-gray-700">Number of Bags</label>
                                 <input type="number" {...commonInputProps('numberOfBags', true)} value={bookingData.numberOfBags} min="1" max="20" step="1" placeholder="1" />
@@ -625,7 +616,8 @@ const Book = () => {
                         <legend className="text-lg font-semibold text-gray-800 border-b border-gray-200 pb-2 mb-4">
                             4. Service & Payment
                         </legend>
-                         <div>
+                         {/* ... Service Type, Payment Mode inputs ... */}
+                           <div>
                             <label htmlFor="serviceType" className="block text-sm font-medium text-gray-700">Service Speed</label>
                             <select {...commonInputProps('serviceType', true)} value={bookingData.serviceType}>
                                 <option value="" disabled>-- Select Service --</option>
@@ -636,11 +628,7 @@ const Book = () => {
                         </div>
 
                         {/* Estimated Cost Placeholder */}
-                         {/* <div className="p-3 bg-blue-50 border border-blue-200 rounded-md">
-                             <p className="text-sm font-medium text-blue-800">Estimated Cost:</p>
-                             <p className="text-lg font-bold text-blue-900">₹ {calculateEstimatedCost() || '---'} </p>
-                             <p className="text-xs text-blue-600">Final cost calculated based on distance, weight, and selected options.</p>
-                         </div> */}
+                         {/* <div className="p-3 bg-blue-50 border border-blue-200 rounded-md"> ... </div> */}
 
                         <div>
                             <label htmlFor="paymentMode" className="block text-sm font-medium text-gray-700">Preferred Payment Method</label>
@@ -661,11 +649,14 @@ const Book = () => {
                         <button
                             type="submit"
                             className="group relative w-full flex justify-center py-3 px-4 border border-transparent text-base font-medium rounded-md text-white bg-[#ff8c00] hover:bg-[#e07b00] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#ff8c00] disabled:opacity-60 disabled:cursor-wait transition duration-150 ease-in-out"
-                            disabled={isSubmitting}
+                            disabled={isSubmitting || !isAuthenticated} // Also disable if somehow user gets logged out between render and click
                         >
                             {isSubmitting ? (
                                 <>
-                                    <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" /* ... */ ></svg>
+                                    <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                    </svg>
                                     Processing Booking...
                                 </>
                             ) : (

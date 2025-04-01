@@ -24,7 +24,7 @@ const PleaseLoginPrompt = () => (
                 You need to be logged in to access the booking page. Please log in or sign up to continue.
             </p>
             <Link
-                to="/login"
+                to="../components/Sidebar.tsk"
                 className="inline-block px-6 py-2 bg-[#ff8c00] text-white font-medium rounded-md hover:bg-[#e07b00] transition duration-150 ease-in-out"
             >
                 Go to Login

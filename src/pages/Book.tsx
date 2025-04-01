@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom'; // Import Link
 import { supabase } from '../supabase';
 
 // --- Reusable Green Checkmark Component ---
+// ... (GreenCheckmark component remains the same) ...
 const GreenCheckmark = () => (
     <svg /* ... SVG code ... */
       className="w-20 h-20 sm:w-24 sm:h-24 text-green-500"
@@ -13,6 +14,26 @@ const GreenCheckmark = () => (
     </svg>
 );
 
+
+// --- Simple Prompt Component ---
+const PleaseLoginPrompt = () => (
+    <div className="flex justify-center items-center min-h-[calc(100vh-200px)]"> {/* Adjust min-height as needed */}
+        <div className="bg-white p-8 rounded-lg shadow-md text-center max-w-md mx-auto">
+            <h2 className="text-2xl font-bold text-gray-800 mb-4">Authentication Required</h2>
+            <p className="text-gray-600 mb-6">
+                You need to be logged in to access the booking page. Please log in or sign up to continue.
+            </p>
+            <Link
+                to="/login"
+                className="inline-block px-6 py-2 bg-[#ff8c00] text-white font-medium rounded-md hover:bg-[#e07b00] transition duration-150 ease-in-out"
+            >
+                Go to Login
+            </Link>
+        </div>
+    </div>
+);
+
+
 // --- Main Booking Component ---
 const Book = () => {
     const navigate = useNavigate();
@@ -20,26 +41,11 @@ const Book = () => {
     // --- State ---
     const [bookingData, setBookingData] = useState({
         // ... (Keep existing state properties) ...
-        name: '',
-        phone: '',
-        email: '',
-        pickupLocationType: '',
-        pickupAddress: '',
-        dropLocationType: '',
-        dropAddress: '',
-        pickupDate: '',
-        pickupTime: '',
-        trainNumber: '',
-        trainName: '',
-        pnrNumber: '',
-        coachNumber: '',
-        seatNumber: '',
-        deliveryPreference: '',
-        numberOfBags: '1',
-        weightCategory: '',
-        specialItemsDescription: '',
-        insuranceRequested: false,
-        serviceType: '',
+        name: '', phone: '', email: '', pickupLocationType: '', pickupAddress: '',
+        dropLocationType: '', dropAddress: '', pickupDate: '', pickupTime: '',
+        trainNumber: '', trainName: '', pnrNumber: '', coachNumber: '', seatNumber: '',
+        deliveryPreference: '', numberOfBags: '1', weightCategory: '',
+        specialItemsDescription: '', insuranceRequested: false, serviceType: '',
         paymentMode: '',
     });
 
@@ -47,75 +53,87 @@ const Book = () => {
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [submitError, setSubmitError] = useState<string | null>(null);
     const [isLoadingAuth, setIsLoadingAuth] = useState(true); // Start loading
+    const [isAuthenticated, setIsAuthenticated] = useState(false); // <-- NEW State: Track auth status
     const [isSubmitSuccess, setIsSubmitSuccess] = useState(false);
     // const [fetchedTrainDetails, setFetchedTrainDetails] = useState(null);
 
     // --- Authentication Check ---
     useEffect(() => {
-        let isMounted = true; // Flag to prevent state updates on unmounted component
+        let isMounted = true;
 
         const checkUserSession = async () => {
-            // No need to set isLoadingAuth to true here, it starts as true
             try {
                 const { data: { session }, error } = await supabase.auth.getSession();
 
-                if (!isMounted) return; // Exit if component unmounted
+                if (!isMounted) return;
 
                 if (error) {
                     console.error("Error checking Supabase session:", error.message);
-                    // Don't set loading false here, let navigation handle it
-                    navigate('/login');
-                    return; // Stop further execution in this function
+                    setIsAuthenticated(false); // <-- Set auth state
+                    setIsLoadingAuth(false);   // <-- Finish loading
+                    // Optionally set an error state here to show a generic error message
+                    return;
                 }
 
                 if (!session) {
-                    console.log("User not authenticated. Redirecting...");
-                    // Don't set loading false here, let navigation handle it
-                    navigate('/login');
-                     // No need to set loading false if navigating away
+                    console.log("User not authenticated.");
+                    setIsAuthenticated(false); // <-- Set auth state
+                    setIsLoadingAuth(false);   // <-- Finish loading
+                    // *** REMOVED navigate('/login') from here ***
                 } else {
                     console.log("User authenticated.");
+                    setIsAuthenticated(true); // <-- Set auth state
                     setBookingData(prev => ({
                         ...prev,
-                        // Only pre-fill if the field is currently empty
                         email: prev.email || session.user?.email || '',
                         name: prev.name || session.user?.user_metadata?.full_name || ''
                     }));
-                    setIsLoadingAuth(false); // *** Set loading false ONLY on successful auth ***
+                    setIsLoadingAuth(false); // <-- Finish loading
                 }
             } catch (err) {
                  if (!isMounted) return;
                  console.error("Unexpected error during auth check:", err);
-                 // Consider navigating to an error page or login
-                 navigate('/login'); // Safest fallback
+                 setIsAuthenticated(false); // <-- Set auth state on error
+                 setIsLoadingAuth(false);   // <-- Finish loading
+                 // Optionally set an error state
             }
-            // Removed setIsLoadingAuth(false) from error/no-session paths
-            // as navigation should take precedence. If navigation fails for some
-            // reason, the component might stay loading, but that's a separate issue.
         };
 
         checkUserSession();
 
+        // Listener remains mostly the same: handles LOGOUTS *after* initial check
         const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
-            // This listener handles subsequent auth changes (e.g., logout in another tab)
-            // The `!isLoadingAuth` check prevents redirecting *during* the initial checkUserSession run
+             // If the component is still mounted, not loading, AND the session disappears
              if (isMounted && !session && !isLoadingAuth) {
-                console.log("Auth state changed: No session found. Redirecting.");
-                setIsLoadingAuth(true); // Set loading true before navigating away
-                navigate('/login');
+                console.log("Auth state changed: No session found. Updating UI.");
+                setIsAuthenticated(false); // Update the state to show the prompt
+                // Optionally: Could still navigate here if desired for logout events
+                // setIsLoadingAuth(true); // Maybe set loading briefly before UI change? Optional.
+                // navigate('/login');
             }
+             // Handle user logging IN in another tab while this page is open
+             else if (isMounted && session && !isLoadingAuth && !isAuthenticated) {
+                 console.log("Auth state changed: Session found. Updating UI.");
+                 setIsAuthenticated(true); // Update state to show form
+                 // Re-fetch user details if needed, or just let the form show
+                  setBookingData(prev => ({
+                        ...prev,
+                        email: prev.email || session.user?.email || '',
+                        name: prev.name || session.user?.user_metadata?.full_name || ''
+                    }));
+             }
         });
 
-        // Cleanup function
         return () => {
-            isMounted = false; // Set flag on unmount
+            isMounted = false;
             authListener?.subscription.unsubscribe();
         };
-        // ***** CRITICAL FIX: Remove isLoadingAuth from dependencies *****
-    }, [navigate]); // Only navigate is needed here
+        // Dependencies remain the same, as navigate isn't directly used in the check logic now
+    }, [navigate, isLoadingAuth, isAuthenticated]); // Added isLoadingAuth and isAuthenticated to dependencies for listener logic
 
 
-    // --- Get Current Date and Time for Min Values ---
+    // ... (getMinDateTime, validateForm, handleChange, handlePnrFetch, handleSubmit remain the same) ...
+      // --- Get Current Date and Time for Min Values ---
     const getMinDateTime = useCallback(() => { // useCallback added
         const now = new Date();
         const today = now.toISOString().split('T')[0];
@@ -217,25 +235,32 @@ const Book = () => {
     // --- Handle Submit ---
     const handleSubmit = useCallback(async (e: React.FormEvent) => {
         e.preventDefault();
+        // Ensure user is authenticated before even validating/submitting
+        if (!isAuthenticated) {
+             setSubmitError("You must be logged in to submit a booking.");
+             return; // Prevent submission if not authenticated
+        }
+
         setSubmitError(null);
         setIsSubmitSuccess(false);
+
 
         if (validateForm()) { // Call validation function
             setIsSubmitting(true);
             try {
-                const { data: { user } } = await supabase.auth.getUser();
-                if (!user) {
-                    // This case should ideally be prevented by the initial auth check,
-                    // but handle it defensively.
-                    setSubmitError("Authentication error. Please log in again.");
-                    setIsSubmitting(false);
-                    navigate('/login'); // Redirect if user somehow got lost
-                    return;
-                }
+                // No need to call getUser again, auth status already checked
+                // But we *do* need the user ID for the insert. Fetch it just in case,
+                // although it should be available if isAuthenticated is true.
+                 const { data: { user } } = await supabase.auth.getUser();
+                 if (!user) {
+                     // Should not happen if isAuthenticated is true, but handle defensively
+                     throw new Error("Authentication session lost. Please log in again.");
+                 }
+
 
                 // Prepare data for Supabase (MATCH YOUR COLUMN NAMES)
                 const dataToSubmit = {
-                    user_id: user.id,
+                    user_id: user.id, // Use the fetched user ID
                     name: bookingData.name.trim(),
                     phone: bookingData.phone.trim(),
                     email: bookingData.email.trim(),
@@ -291,7 +316,7 @@ const Book = () => {
                         setIsSubmitting(false);
                          // Maybe redirect to 'My Bookings' or dashboard
                         // navigate('/my-bookings');
-                    }, 4000); // Show success for 4 seconds
+                    }, 3000); // Show success for 3 seconds
                 }
             } catch (err: any) {
                 console.error('Error during submission process:', err);
@@ -310,7 +335,8 @@ const Book = () => {
              }
         }
     // Add dependencies for handleSubmit
-    }, [bookingData, validateForm, navigate]);
+    }, [bookingData, validateForm, navigate, isAuthenticated]); // <-- Added isAuthenticated
+
 
     // --- Render Logic ---
 
@@ -319,8 +345,8 @@ const Book = () => {
         return (
           <div className="flex justify-center items-center min-h-screen bg-gray-50">
             <div className="text-center">
-                {/* Optional: Add a spinner */}
                  <svg className="animate-spin h-10 w-10 text-[#ff8c00] mx-auto mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    {/* ... spinner SVG ... */}
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                  </svg>
@@ -330,28 +356,34 @@ const Book = () => {
         );
     }
 
-    // 2. Show success overlay if submission was successful
+    // 2. Show "Please Login" prompt if *not* loading and *not* authenticated
+    if (!isAuthenticated) {
+        return <PleaseLoginPrompt />;
+    }
+
+    // 3. Show success overlay if submission was successful (and user is authenticated)
     if (isSubmitSuccess) {
         return (
           <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-green-50 text-center p-4">
-            <GreenCheckmark />
+            {/* ... (Success overlay content) ... */}
+             <GreenCheckmark />
             <h2 className="mt-6 text-2xl sm:text-3xl font-bold text-green-700">Booking Confirmed!</h2>
             <p className="mt-2 text-lg text-gray-600">Your BagEase booking is successful. You will receive details shortly.</p>
-             {/* Example link */}
-             {/* <button onClick={() => navigate('/my-bookings')} className="mt-6 px-4 py-2 bg-[#ff8c00] text-white rounded hover:bg-[#e07b00]">View My Bookings</button> */}
           </div>
         );
     }
 
-    // 3. Render the form (Auth check passed, not currently submitting successfully)
-    // Helper for input/select props (memoized with useCallback if needed, but usually fine inline)
+    // 4. Render the actual form if *not* loading, *is* authenticated, and *not* currently showing success
+    // Helper for input/select props
     const commonInputProps = (name: keyof typeof bookingData, isRequired = true) => ({
-        id: name,
+        // ... (commonInputProps definition remains the same) ...
+         id: name,
         name: name,
         onChange: handleChange,
         className: `mt-1 block w-full px-3 py-2 bg-white border ${errors[name] ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm focus:outline-none focus:ring-1 focus:ring-[#ff8c00] focus:border-[#ff8c00] sm:text-sm disabled:bg-gray-100 disabled:cursor-not-allowed`,
         disabled: isSubmitting,
-        required: isRequired, // HTML5 validation hint (use sparingly, rely on JS validation)
+        // Avoid using HTML5 required when using JS validation + noValidate
+        // required: isRequired,
         'aria-invalid': errors[name] ? "true" : "false",
         'aria-describedby': errors[name] ? `${name}-error` : undefined,
     });
@@ -361,7 +393,8 @@ const Book = () => {
         <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
             <div className="max-w-3xl mx-auto">
                  {/* --- Header --- */}
-                <h1 className="text-center text-3xl font-extrabold text-gray-900 mb-2">
+                {/* ... (Header remains the same) ... */}
+                 <h1 className="text-center text-3xl font-extrabold text-gray-900 mb-2">
                     Book Your BagEase Service
                 </h1>
                 <p className="text-center text-sm text-gray-600 mb-8">
@@ -369,10 +402,10 @@ const Book = () => {
                 </p>
 
                 {/* --- Form Start --- */}
-                {/* Use `useCallback` on handleSubmit, so noValidate is preferred */}
                 <form onSubmit={handleSubmit} noValidate className="bg-white p-6 sm:p-8 rounded-lg shadow-lg space-y-8">
+                    {/* ... (Rest of the form JSX remains the same) ... */}
 
-                    {/* General Submission Error */}
+                     {/* General Submission Error */}
                     {submitError && ( // Show only if there's an error message
                         <div className="p-3 bg-red-100 border-l-4 border-red-500 text-red-700 rounded-md text-sm" role="alert">
                             <p className="font-bold">Oops! Something went wrong.</p>
@@ -632,10 +665,7 @@ const Book = () => {
                         >
                             {isSubmitting ? (
                                 <>
-                                    <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                    </svg>
+                                    <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" /* ... */ ></svg>
                                     Processing Booking...
                                 </>
                             ) : (

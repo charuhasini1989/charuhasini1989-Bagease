@@ -14,7 +14,7 @@ const carouselImages = [
   // Image 2 (e.g., train station focus)
   'https://images.unsplash.com/photo-1484271201072-03bfd82a56f6?q=80&w=2070&auto=format&fit=crop&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D',
   // Image 3 (e.g., luggage focus)
-  'https://images.unsplash.com/photo-1571893652827-a3e071ab463b?q=80&w=2072&auto=format&fit=crop&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D',
+  'https://images.unsplash.com/photo-1474487548417-781cb71495f3?q=80&w=1968&auto=format&fit=crop&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D',
 ];
 
 const Home: React.FC = () => {

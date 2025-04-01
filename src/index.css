@@ -1,0 +1,53 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  background-color: #f0f0f0;
+  color: #4a4a4a;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  color: #333000;
+  font-weight: 700;
+}
+
+/* Add text shadow utilities */
+.text-shadow-sm {
+  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+.text-shadow-md {
+  text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.4);
+}
+
+.text-shadow-lg {
+  text-shadow: 3px 3px 6px rgba(0, 0, 0, 0.5);
+}
+
+/* Carousel customizations */
+.carousel .slide {
+  height: 100vh !important;
+}
+
+.carousel .slide img {
+  height: 100% !important;
+  object-fit: cover !important;
+}
+
+/* Remove any gaps between carousel slides */
+.carousel-root {
+  height: 100% !important;
+}
+
+.carousel.carousel-slider {
+  height: 100% !important;
+}
+
+.carousel .slider-wrapper {
+  height: 100% !important;
+}
+
+.carousel .slider {
+  height: 100% !important;
+}

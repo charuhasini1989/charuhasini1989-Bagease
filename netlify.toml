@@ -1,0 +1,17 @@
+[build]
+  # Command to install dependencies and build your Vite project.
+  # 'npm run build' is standard; check your package.json["scripts"]["build"]
+  command = "npm install && npm run build"
+
+  # The directory Vite outputs the built site to. Default is 'dist/'
+  publish = "dist/"
+
+# Redirect rule for Single Page Applications (like React Router)
+# This ensures direct visits to routes like /about still load the app
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+
+# You likely DO NOT need PHP settings anymore
+# Remove any [build.environment] section related to PHP_VERSION

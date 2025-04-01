@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+
+# Build output folder
+dist/
+
+# Log files
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment variables (KEEP YOUR SECRETS OUT OF GIT!)
+.env
+.env.*
+!.env.example # Allows an example env file if you create one
+
+# IDE / Editor directories
+.vscode/
+.idea/
+
+# OS generated files
+*.DS_Store
+Thumbs.db
+
+# Supabase local development files
+supabase/.temp/
+supabase/.branches/
+
+# Miscellaneous - If that .bolt directory you saw earlier is just local tooling state
+/.bolt/
+
+# Remove generated migration files if you manage schema purely via UI/remote
+# Or keep them if you use file-based migrations as your source of truth
+# supabase/migrations/* # Uncomment this line ONLY if you DON'T want migrations in Git

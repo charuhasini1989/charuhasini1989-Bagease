@@ -9,12 +9,12 @@ import "react-responsive-carousel/lib/styles/carousel.min.css"; // Import carous
 
 // --- Define Carousel Images ---
 const carouselImages = [
-  // Original Image
+
   'https://images.unsplash.com/photo-1442570468985-f63ed5de9086?q=80&w=2120&auto=format&fit=crop&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D',
-  // Image 2 (e.g., train station focus)
-  'https://images.unsplash.com/photo-1484271201072-03bfd82a56f6?q=80&w=2070&auto=format&fit=crop&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D',
-  // Image 3 (e.g., luggage focus)
   'https://wallpapers.com/images/high/vintage-suitcases-travel-maps-background-ribrfo6whlh3o495.webp',
+  'https://images.unsplash.com/photo-1484271201072-03bfd82a56f6?q=80&w=2070&auto=format&fit=crop&ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D',
+
+  
 ];
 
 const Home: React.FC = () => {

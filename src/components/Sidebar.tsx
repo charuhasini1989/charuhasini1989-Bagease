@@ -419,7 +419,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
                            className={inputClasses()} disabled={loading} />
                     </div>
                     <div>
-                        <label htmlFor="aadhar_number" className="block text-sm font-medium text-gray-700 mb-1">Aadhar Number <span className="text-xs text-gray-500">(Optional)</span></label>
+                        <label htmlFor="aadhar_number" className="block text-sm font-medium text-gray-700 mb-1">Aadhar Number </label>
                         <input id="aadhar_number" name="aadhar_number" type="text" inputMode="numeric" pattern="\d{12}" title="Enter 12-digit Aadhar number" value={formData.aadhar_number} onChange={handleInputChange} placeholder="1234 5678 9012" className={inputClasses()} disabled={loading} />
                          <p className="text-xs text-gray-500 mt-1">Enter 12-digit number. <span className='font-semibold'>Handled securely.</span></p> {/* *** Add note about security *** */}
                     </div>

@@ -45,9 +45,9 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
       email: '', password: '', full_name: '', phone: '', date_of_birth: '', aadhar_number: '',
   });
   const [feedback, setFeedback] = useState<FeedbackMessage | null>(null);
-  // `loading` for initial session check & listener transitions
+  // `loading` for initial session check & major transitions (like logout)
   const [loading, setLoading] = useState<boolean>(true);
-  // `authLoading` for disabling inputs/buttons during async auth actions
+  // `authLoading` for disabling inputs/buttons during async auth actions (login/signup/logout clicks)
   const [authLoading, setAuthLoading] = useState<boolean>(false);
   const [isSigningUp, setIsSigningUp] = useState<boolean>(false);
   const [activeSection, setActiveSection] = useState<string>('');
@@ -84,7 +84,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
 
   // --- Listener for Auth State Changes & Profile Fetch ---
   useEffect(() => {
-    setLoading(true);
+    setLoading(true); // Start loading for initial check
     console.log("AUTH_LISTENER: Initializing");
 
     // Check initial session
@@ -99,7 +99,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
         if (!profile) console.warn("AUTH_LISTENER: Initial load - user exists but profile fetch failed or returned null.");
         setProfileData(profile);
       } else {
-        resetAuthState(false);
+        resetAuthState(false); // Reset form etc., keep potential old feedback
         setProfileData(null);
       }
       console.log("AUTH_LISTENER: Initial load complete.");
@@ -110,50 +110,77 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
     const { data: authListener } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         console.log(`AUTH_LISTENER: Event received - ${event}`, { session: !!session });
-        // Set general loading true during the transition handling
-        setLoading(true);
-        // Clear action-specific loading, as the listener is now handling the state
-        setAuthLoading(false);
         const user = session?.user ?? null;
-        setCurrentUser(user); // Update user state first
+        let shouldSetLoading = false; // Flag to control setting loading state
 
-        try { // Wrap event handling in try/finally to ensure loading is unset
+        // Only set authLoading false if it wasn't already triggered by an error/manual step
+        // Check if authLoading is currently true before setting it false, prevents flicker if already handled
+        // setAuthLoading(false); // Removed from here, handled more specifically now
+
+        try { // Wrap event handling in try/finally
           if (event === 'SIGNED_OUT' || !user) {
             console.log("AUTH_LISTENER: Handling SIGNED_OUT or no user");
-            resetAuthState();
+            // Transitioning OUT of logged-in state, show loading briefly
+            shouldSetLoading = true;
+            setLoading(true);
+            resetAuthState(); // Clear form, feedback etc.
             setProfileData(null);
+            setCurrentUser(null); // Explicitly set user null
+            setAuthLoading(false); // Ensure authLoading is off after logout completes listener processing
+
           } else if (event === 'SIGNED_IN') {
             console.log("AUTH_LISTENER: Handling SIGNED_IN for user:", user.id);
-            setFeedback(null); // Clear any previous feedback
+             // Don't set loading = true here, UI should update smoothly
+            setAuthLoading(false); // Ensure button spinners/disables are turned off now that auth succeeded
+            setFeedback(null); // Clear any previous feedback (like 'account not found')
             setFormData({ email: '', password: '', full_name: '', phone: '', date_of_birth: '', aadhar_number: '' }); // Clear form
             setIsSigningUp(false); // Ensure login mode
+            setCurrentUser(user); // Update user state FIRST
 
             const profile = await fetchProfile(user.id); // Fetch profile
             if (!profile) {
                  console.warn("AUTH_LISTENER: SIGNED_IN - profile fetch failed or returned null.");
-                 // Optionally set feedback if profile is crucial and missing post-login
-                 // setFeedback({ type: 'info', text: 'Could not load profile details.' });
             }
             setProfileData(profile); // Set profile state (even if null)
             console.log("AUTH_LISTENER: SIGNED_IN processing complete.");
 
           } else if (event === 'USER_UPDATED' && user) {
             console.log("AUTH_LISTENER: Handling USER_UPDATED for user:", user.id);
-            // Re-fetch profile if user data might have changed relevant profile info
-            const profile = await fetchProfile(user.id);
+             // Don't set loading = true, background update
+            setCurrentUser(user); // Update user object if it changed
+            const profile = await fetchProfile(user.id); // Re-fetch profile
             if (!profile) console.warn("AUTH_LISTENER: USER_UPDATED - profile fetch failed or returned null.");
-            setProfileData(profile);
+            setProfileData(profile); // Update profile state
             console.log("AUTH_LISTENER: USER_UPDATED processing complete.");
+             setAuthLoading(false); // Ensure authLoading is off if some async user update action triggered this
+
+          } else if (event === 'PASSWORD_RECOVERY') {
+              console.log("AUTH_LISTENER: Handling PASSWORD_RECOVERY");
+              setFeedback({type: 'info', text: 'Password recovery email sent. Check your inbox.'});
+              setAuthLoading(false); // Stop any loading indicator
+
+          } else if (event === 'TOKEN_REFRESHED') {
+               console.log("AUTH_LISTENER: Handling TOKEN_REFRESHED - typically no UI change needed.");
+               // No need to set loading or fetch profile unless necessary for your app logic
+               setAuthLoading(false); // Ensure authLoading is off
+
           } else {
-             console.log(`AUTH_LISTENER: Event ${event} - no specific action taken.`);
+             console.log(`AUTH_LISTENER: Event ${event} - no specific state change action taken.`);
+             setAuthLoading(false); // Ensure authLoading is off for unhandled events too
           }
         } catch (listenerError) {
             console.error("AUTH_LISTENER: Error during event handling:", listenerError);
              setFeedback({ type: 'error', text: 'An error occurred updating account state.'})
+             setAuthLoading(false); // Ensure loading is off on error
+             // Only set general loading false if it was set true by this handler (e.g., SIGNED_OUT)
+             if (shouldSetLoading) setLoading(false);
         } finally {
-            console.log(`AUTH_LISTENER: Finished processing ${event}. Setting loading = false.`);
-            // Ensure loading is always set to false after processing the event
-            setLoading(false);
+            console.log(`AUTH_LISTENER: Finished processing ${event}. Setting loading = ${!shouldSetLoading ? 'false (unchanged or set by specific case)' : 'false (was set true by this handler)'}.`);
+            // Ensure loading is set to false *if* it was set to true *by this specific event handler* (e.g. SIGNED_OUT)
+            // For SIGNED_IN and USER_UPDATED, loading state should ideally remain false.
+            if (shouldSetLoading) {
+                setLoading(false);
+            }
         }
       }
     );
@@ -171,7 +198,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
       setFormData({ email: '', password: '', full_name: '', phone: '', date_of_birth: '', aadhar_number: '' });
       if (clearFeedback) setFeedback(null);
       setIsSigningUp(false);
-      // Note: profileData is cleared by the listener on SIGNED_OUT
+      // Note: currentUser and profileData are cleared by the listener on SIGNED_OUT
   }
 
   // --- Body Scroll Lock ---
@@ -262,14 +289,14 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
             setFeedback({ type: 'success', text: 'Account created! Check email (inc spam) for confirmation link.' });
             setIsSigningUp(false); // Switch back to login view
             setFormData(prev => ({ ...prev, password: '', full_name: '', phone: '', date_of_birth: '', aadhar_number: '' }));
-            setAuthLoading(false); // Stop loading manually here
+            setAuthLoading(false); // Stop loading manually here as listener won't fire SIGNED_IN yet
             console.log("HANDLE_AUTH (Signup): Finished processing (verification needed).");
         } else { // Auto-confirmed / logged in
             console.log("HANDLE_AUTH (Signup): Auto-confirmed or verification disabled. User logged in.");
             // Don't set feedback here, SIGNED_IN listener will trigger UI update
-            // Listener ('SIGNED_IN') will handle profile fetch, and stop loading states.
+            // Listener ('SIGNED_IN') will handle profile fetch, and stop authLoading state.
             console.log("HANDLE_AUTH (Signup): Finished processing (auto-logged in). Listener will take over.");
-            // setAuthLoading(false); // Let the listener handle this
+            // setAuthLoading(false); // Let the listener handle this in SIGNED_IN
         }
 
       } else {
@@ -296,8 +323,8 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
             }
         }
         console.log('HANDLE_AUTH (Login): Login successful for:', signInData.user?.email);
-        // Listener ('SIGNED_IN') will handle UI update, profile fetch, and stop loading states.
-        // setAuthLoading(false); // Let the listener handle this
+        // Listener ('SIGNED_IN') will handle UI update, profile fetch, and stop authLoading state.
+        // setAuthLoading(false); // Let the listener handle this in SIGNED_IN
       }
 
     } catch (error: any) {
@@ -320,7 +347,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
           setFeedback(feedbackMessage);
       }
 
-      setAuthLoading(false); // Stop loading on any error caught here
+      setAuthLoading(false); // Stop action loading on any error caught here
 
       // Focus logic
       if (!isSigningUp) { // If in login mode (or just switched back)
@@ -332,23 +359,23 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
            // Add more focusing logic if needed for other signup fields
       }
     }
-    // No finally block needed as loading is managed by listener or specific paths
+    // No finally block needed for authLoading here as it's handled by listener success or catch block error
   };
 
   // --- Logout Handler ---
   const handleLogout = async () => {
     console.log("HANDLE_LOGOUT: Starting logout");
-    setAuthLoading(true);
+    setAuthLoading(true); // Start action loading for the button
     setFeedback(null);
     try {
         const { error } = await supabase.auth.signOut();
         if (error) throw error;
         console.log("HANDLE_LOGOUT: Logout successful (listener will handle state reset)");
-        // Listener ('SIGNED_OUT') handles state reset and stops loading states.
+        // Listener ('SIGNED_OUT') handles state reset and stops authLoading state.
     } catch(error: any) {
         console.error('HANDLE_LOGOUT: Logout Error:', error.message);
         setFeedback({ type: 'error', text: "Failed to log out. Please try again." });
-        setAuthLoading(false); // Stop loading only on error
+        setAuthLoading(false); // Stop loading only on error, listener handles on success
     }
   };
 
@@ -357,6 +384,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
     const enteringSignupMode = !isSigningUp;
     console.log(`TOGGLE_AUTH_MODE: Switching to ${enteringSignupMode ? 'Signup' : 'Login'}`);
     setIsSigningUp(enteringSignupMode);
+    // Keep email, clear others
     setFormData(prev => ({ email: prev.email, password: '', full_name: '', phone: '', date_of_birth: '', aadhar_number: '' }));
     setFeedback(null);
     setTimeout(() => {
@@ -375,19 +403,26 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
   return (
     <>
       {/* Overlay */}
-      <div onClick={authLoading || loading ? undefined : onClose} className={`fixed inset-0 bg-black bg-opacity-60 backdrop-blur-sm transition-opacity duration-300 z-40 ${isOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`} aria-hidden={!isOpen} />
+      <div onClick={authLoading || (loading && !currentUser) ? undefined : onClose} className={`fixed inset-0 bg-black bg-opacity-60 backdrop-blur-sm transition-opacity duration-300 z-40 ${isOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`} aria-hidden={!isOpen} />
 
       {/* Sidebar Panel */}
       <div className={`fixed top-0 right-0 h-full w-full max-w-sm bg-white shadow-xl transform transition-transform duration-300 ease-in-out z-50 flex flex-col ${isOpen ? 'translate-x-0' : 'translate-x-full'}`} role="dialog" aria-modal="true" aria-labelledby="sidebar-title">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-gray-200 flex-shrink-0">
           <h2 id="sidebar-title" className="text-xl font-semibold text-gray-800">
+            {/* Show 'Loading...' only during the very initial session check */}
             {loading && !currentUser ? 'Loading...' :
+             /* Show 'Processing...' if a button action is in progress */
              authLoading ? 'Processing...' :
+             /* Otherwise, show state based on currentUser */
              currentUser ? 'My Account' :
              isSigningUp ? 'Create Account' : 'Log In'}
           </h2>
-          <button onClick={onClose} className="p-1 rounded-full text-gray-500 hover:text-gray-800 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-1 transition-colors" aria-label="Close sidebar" disabled={authLoading || (loading && !currentUser)} > <X size={24} /> </button>
+          <button onClick={onClose} className="p-1 rounded-full text-gray-500 hover:text-gray-800 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-1 transition-colors" aria-label="Close sidebar"
+           // Disable close only if an auth action is running OR it's the initial load
+           disabled={authLoading || (loading && !currentUser)} >
+             <X size={24} />
+           </button>
         </div>
 
         {/* Main Content Area */}
@@ -395,10 +430,10 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
           {/* Feedback */}
           {feedback && ( <div className={`mb-4 p-3 border rounded-md text-sm flex items-start ${ feedback.type === 'error' ? 'bg-red-50 border-red-300 text-red-800' : feedback.type === 'success' ? 'bg-green-50 border-green-300 text-green-800' : 'bg-blue-50 border-blue-300 text-blue-800' }`}> <AlertCircle size={18} className="mr-2 flex-shrink-0 mt-0.5" /> <span>{feedback.text}</span> </div> )}
 
-          {/* Initial Loading Indicator */}
+          {/* Initial Loading Indicator - Show ONLY during initial load */}
           {loading && !currentUser && !authLoading && ( <div className="flex justify-center items-center py-10"> <Loader2 size={32} className="animate-spin text-orange-600" /> </div> )}
 
-          {/* Logged In View */}
+          {/* Logged In View - Show if NOT initial loading AND currentUser exists */}
           {!loading && currentUser ? (
             <div className="space-y-6">
               {/* Welcome Message */}
@@ -421,12 +456,14 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
 
               {/* Logout Button */}
               <button onClick={handleLogout} disabled={authLoading} className="flex items-center justify-center w-full px-4 py-2 mt-6 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-1 transition-colors disabled:opacity-50">
+                  {/* Show spinner ONLY if authLoading is true (logout button clicked) */}
                   {authLoading ? <Loader2 size={18} className="mr-2 animate-spin" /> : <LogOut size={18} className="mr-2" />}
                   {authLoading ? 'Processing...' : 'Logout'}
               </button>
             </div>
           ) : (
             // --- Logged Out View (Login OR Signup Form) ---
+             // Show if NOT initial loading AND no currentUser
              !loading && !currentUser && (
                <form onSubmit={handleAuth} className="space-y-4">
                 {/* Signup Fields */}
@@ -436,15 +473,21 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
                 {/* Password */}
                 <div><label htmlFor="password"className="block text-sm font-medium text-gray-700 mb-1">Password</label><input id="password" name="password" type="password" value={formData.password} onChange={handleInputChange} placeholder={isSigningUp ? "Create password (min. 6 chars)" : "••••••••"} className={inputClasses(feedback?.type === 'error' && !isSigningUp)} required minLength={isSigningUp ? 6 : undefined} disabled={authLoading} />{!isSigningUp && ( <div className="text-right mt-1"><button type="button" className="text-sm text-orange-600 hover:underline focus:outline-none" onClick={() => setFeedback({type: 'info', text:'Password recovery coming soon!'})} disabled={authLoading}>Forgot password?</button></div> )}</div>
                 {/* Submit Button */}
-                <button type="submit" disabled={authLoading} className="w-full bg-orange-600 text-white py-2.5 px-4 rounded-lg font-semibold hover:bg-orange-700 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2 transition-colors disabled:opacity-70 flex items-center justify-center"> {authLoading && <Loader2 size={20} className="mr-2 animate-spin" />} {!authLoading && isSigningUp && <UserPlus size={18} className="mr-2" />} {authLoading ? 'Processing...' : (isSigningUp ? 'Sign Up' : 'Log In')} </button>
+                <button type="submit" disabled={authLoading} className="w-full bg-orange-600 text-white py-2.5 px-4 rounded-lg font-semibold hover:bg-orange-700 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2 transition-colors disabled:opacity-70 flex items-center justify-center">
+                  {/* Show spinner ONLY if authLoading is true (button action running) */}
+                  {authLoading && <Loader2 size={20} className="mr-2 animate-spin" />}
+                  {!authLoading && isSigningUp && <UserPlus size={18} className="mr-2" />}
+                  {authLoading ? 'Processing...' : (isSigningUp ? 'Sign Up' : 'Log In')}
+                </button>
                </form>
             )
           )}
         </div> {/* End Main Content Area */}
 
         {/* Footer */}
+        {/* Show if NOT initial loading AND no currentUser */}
         {!loading && !currentUser && ( <div className="p-4 border-t border-gray-200 text-center flex-shrink-0"> <button onClick={toggleAuthMode} disabled={authLoading} className="text-sm text-orange-600 hover:underline focus:outline-none disabled:opacity-50"> {isSigningUp ? 'Already have an account? Log In' : "Don't have an account? Sign Up"} </button> </div> )}
-        <div className="flex-shrink-0 h-4"></div>
+        <div className="flex-shrink-0 h-4"></div> {/* Adds some padding at the bottom */}
       </div> {/* End Sidebar Panel */}
     </>
   );

@@ -1,479 +1,409 @@
 // src/components/Sidebar.tsx
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import {
-  X,
-  Truck,
-  MapPin,
-  LogOut,
-  ClipboardList,
-  Loader2,
-  AlertCircle,
-  UserPlus, // For signup icon
-} from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { X, Truck, MapPin, LogOut, ClipboardList, Loader2, AlertCircle, UserPlus } from 'lucide-react'; // Added UserPlus
 import { supabase } from '../supabase'; // Ensure this path is correct
-import { User, AuthError, Session } from '@supabase/supabase-js';
+import { User, AuthError } from '@supabase/supabase-js';
 
-// --- Interfaces ---
-
+// --- Define Prop Types ---
 interface SidebarProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
+// --- Feedback Message Types ---
 interface FeedbackMessage {
-  type: 'error' | 'success' | 'info';
-  text: string;
+    type: 'error' | 'success' | 'info';
+    text: string;
 }
 
-// Matches the structure expected from your 'profiles' table
+// --- Profile Data (from profiles table) ---
 interface Profile {
-  id?: string; // Usually the user UUID from auth.users
-  full_name: string | null;
-  phone: string | null;
-  date_of_birth: string | null; // Format YYYY-MM-DD
-  aadhar_number: string | null;
-  email?: string | null; // Can be useful to store/display
+    id?: string;
+    full_name: string | null; // Expect string if fetched successfully
+    phone: string | null;
+    date_of_birth: string | null;
+    aadhar_number: string | null; // Keep null possibility for type safety
+    email?: string | null;
 }
 
-// Combined form data for login/signup
-interface FormData extends Profile {
-  email: string;
-  password: string; // Only used for auth, not stored in profiles table usually
+// --- Combined Form Data Type ---
+interface FormData extends Profile { // Inherit from Profile for shared fields
+    email: string; // email is always string here
+    password: string;
+    // Add other form-specific fields if any in future
 }
-
-// --- Component ---
 
 const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
-  // --- State Definitions ---
+  // --- State ---
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [profileData, setProfileData] = useState<Profile | null>(null);
+  const [profileData, setProfileData] = useState<Profile | null>(null); // State to hold profile data
   const [formData, setFormData] = useState<FormData>({
-    email: '', password: '', full_name: '', phone: '', date_of_birth: '', aadhar_number: '',
+      email: '',
+      password: '',
+      full_name: '',
+      phone: '',
+      date_of_birth: '',
+      aadhar_number: '',
   });
   const [feedback, setFeedback] = useState<FeedbackMessage | null>(null);
+  const [loading, setLoading] = useState<boolean>(true); // Combined loading state
+  const [authLoading, setAuthLoading] = useState<boolean>(false); // Specific loading for auth actions
   const [isSigningUp, setIsSigningUp] = useState<boolean>(false);
-  const [activeSection, setActiveSection] = useState<string>(''); // For dashboard navigation
-
-  // Loading States:
-  // initialLoading: True only during the very first session check on component mount.
-  const [initialLoading, setInitialLoading] = useState<boolean>(true);
-  // authActionLoading: True when login, signup, or logout buttons are clicked and awaiting response.
-  const [authActionLoading, setAuthActionLoading] = useState<boolean>(false);
-  // profileLoading: True specifically when fetching profile data (e.g., after login).
-  const [profileLoading, setProfileLoading] = useState<boolean>(false);
-
-  // --- Refs for Input Focus ---
+  const [activeSection, setActiveSection] = useState<string>('');
   const emailInputRef = useRef<HTMLInputElement>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
-  const aadharInputRef = useRef<HTMLInputElement>(null);
-  const passwordInputRef = useRef<HTMLInputElement>(null); // Added for password focus
+  const aadharInputRef = useRef<HTMLInputElement>(null); // Ref for aadhar input
 
-  // --- Helper Functions ---
+  // --- Helper: Fetch User Profile ---
+  const fetchProfile = async (userId: string): Promise<Profile | null> => {
+      console.log(`Fetching profile for user ID: ${userId}`);
+      try {
+          const { data, error, status } = await supabase
+              .from('profiles') // Use your actual table name
+              .select('full_name, phone, date_of_birth, aadhar_number, email') // Select desired fields
+              .eq('id', userId)
+              .maybeSingle(); // Use maybeSingle to handle null gracefully
 
-  /** Clears form fields, feedback, and resets auth mode */
-  const resetAuthState = useCallback((clearFeedback = true) => {
-    console.log('Resetting Auth State');
-    setActiveSection('');
-    setFormData({ email: '', password: '', full_name: '', phone: '', date_of_birth: '', aadhar_number: '' });
-    if (clearFeedback) setFeedback(null);
-    setIsSigningUp(false);
-    setAuthActionLoading(false); // Ensure auth loading is reset
-    // Note: currentUser and profileData are handled by the auth listener
-  }, []); // No dependencies needed as it only uses setters
-
-  /** Fetches profile data for a given user ID */
-  const fetchProfile = useCallback(async (userId: string): Promise<Profile | null> => {
-    console.log(`Fetching profile for user ID: ${userId}`);
-    setProfileLoading(true);
-    setFeedback(null); // Clear previous feedback before fetch attempt
-
-    // *** CRITICAL: Ensure Row Level Security (RLS) is enabled on your 'profiles' table ***
-    // RLS Policy Example (for authenticated users to select their own profile):
-    // Table: profiles
-    // For SELECT operation
-    // Using expression: (auth.uid() = id)
-    // With check expression: (auth.uid() = id) -- also good for insert/update if needed
-
-    try {
-      const { data, error, status } = await supabase
-        .from('profiles')
-        .select('full_name, phone, date_of_birth, aadhar_number, email') // Select desired fields
-        .eq('id', userId)
-        .maybeSingle(); // Use maybeSingle() to handle cases where profile might not exist yet
-
-      if (error && status !== 406) { // 406 means no rows found, which is okay with maybeSingle()
-        console.error('Error fetching profile:', error.message, 'Status:', status);
-        setFeedback({ type: 'error', text: `Could not load profile: ${error.message}. Check RLS policy.` });
-        return null;
+          if (error && status !== 406) { // 406: 'Not found', expected if no profile yet
+              console.error('Error fetching profile:', error.message);
+              setFeedback({ type: 'error', text: 'Could not load profile data.' });
+              return null;
+          }
+          if (data) {
+              console.log('Profile data fetched:', data);
+              return data as Profile;
+          }
+          console.log('No profile found for user.');
+          return null; // No profile exists for this user yet
+      } catch (err: any) {
+          console.error('Exception during profile fetch:', err.message);
+          setFeedback({ type: 'error', text: 'An error occurred fetching your profile.' });
+          return null;
       }
-
-      if (data) {
-        console.log('Profile data fetched successfully:', data);
-        return data as Profile;
-      } else {
-        console.log('No profile found for this user (user exists but no profile record).');
-        // Optionally set info feedback if a profile is expected but missing
-        // setFeedback({ type: 'info', text: 'Profile data not yet created.' });
-        return null; // No profile exists yet
-      }
-    } catch (err: any) {
-      console.error('Exception during profile fetch:', err.message);
-      setFeedback({ type: 'error', text: 'An unexpected error occurred while fetching your profile.' });
-      return null;
-    } finally {
-      setProfileLoading(false);
-      console.log('Profile fetch attempt finished.');
-    }
-  }, []); // No dependencies, it's a self-contained async function using setters
-
-  /** Maps Supabase/other errors to user-friendly messages */
-  const getFriendlyErrorMessage = (error: AuthError | Error | any): string => {
-    let message = "An unexpected error occurred. Please try again.";
-    if (!error) return message;
-
-    const errorMessage = typeof error.message === 'string' ? error.message : String(error);
-    console.error('Auth/DB Error:', errorMessage, error); // Log the raw error
-
-    if (errorMessage.includes('Invalid login credentials')) {
-      message = "Incorrect email or password. Please check your details.";
-    } else if (errorMessage.includes('User already registered') || errorMessage.includes('already exists')) {
-      message = "This email is already registered. Please log in instead.";
-      // Automatically switch to login mode might be helpful here:
-      setIsSigningUp(false);
-      setFormData(prev => ({ ...prev, password: '', full_name: '', phone: '', date_of_birth: '', aadhar_number: ''}));
-      setTimeout(() => emailInputRef.current?.focus(), 100);
-    } else if (errorMessage.includes('Password should be at least 6 characters')) {
-      message = 'Password must be at least 6 characters long.';
-      setTimeout(() => passwordInputRef.current?.focus(), 100);
-    } else if (errorMessage.includes('Unable to validate email address: invalid format')) {
-      message = 'Please enter a valid email address.';
-      setTimeout(() => emailInputRef.current?.focus(), 100);
-    } else if (errorMessage.includes('Email rate limit exceeded') || errorMessage.includes('too many requests')) {
-      message = 'Too many attempts. Please try again later.';
-    } else if (errorMessage.includes('check constraint') && errorMessage.includes('phone')) {
-        message = 'Invalid phone number format provided.';
-    } else if (errorMessage.includes('profiles_pkey') || (errorMessage.includes('duplicate key') && errorMessage.includes('profiles'))) {
-        message = 'Profile data could not be saved (user might already have one). Contact support if this persists.';
-    } else if (errorMessage.includes('violates not-null constraint') && errorMessage.includes('full_name')) {
-        message = 'Full Name is required for signup.';
-        setTimeout(() => nameInputRef.current?.focus(), 100);
-    } else if (errorMessage.includes('violates not-null constraint') && errorMessage.includes('aadhar_number')) {
-        message = 'Aadhar Number is required for signup.';
-        setTimeout(() => aadharInputRef.current?.focus(), 100);
-    } else if (errorMessage.includes('Aadhar number must be 12 digits')) { // Custom validation error
-        message = 'Please enter a valid 12-digit Aadhar number.';
-        setTimeout(() => aadharInputRef.current?.focus(), 100);
-    }
-    // Keep the original message if none of the specific checks match and it exists
-    else if (errorMessage) {
-      message = errorMessage;
-    }
-
-    return message;
   };
 
-  // --- Effects ---
 
-  // Effect for Initial Session Check and Auth State Changes
+  // --- Listener for Auth State Changes & Profile Fetch ---
   useEffect(() => {
-    setInitialLoading(true);
-    setProfileData(null); // Reset profile on initial check start
-    setCurrentUser(null); // Reset user on initial check start
+    setLoading(true); // Initial loading for session check
 
-    // 1. Check initial session
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
+    // Check initial session
+    supabase.auth.getSession().then(async ({ data: { session }, error }) => {
+      if (error) console.error("Error getting initial session:", error.message);
       const user = session?.user ?? null;
-      console.log('Initial session check complete. User:', user?.id || 'None');
       setCurrentUser(user);
+
       if (user) {
-        const profile = await fetchProfile(user.id);
+        const profile = await fetchProfile(user.id); // Fetch profile on initial load if logged in
         setProfileData(profile);
       } else {
-         resetAuthState(false); // Reset form/mode if no user initially
+        resetAuthState(false); // Reset if no user initially
+        setProfileData(null);
       }
-      setInitialLoading(false); // Initial load finished
-      console.log('Initial load state set to false.');
-    }).catch(error => {
-        console.error("Error getting initial session:", error);
-        setFeedback({ type: 'error', text: 'Failed to check initial session.' });
-        setInitialLoading(false); // Still finish loading even on error
+      setLoading(false); // Finish initial load
     });
 
-    // 2. Listen for subsequent auth changes
+    // Listen for subsequent changes
     const { data: authListener } = supabase.auth.onAuthStateChange(
-      async (event: string, session: Session | null) => {
-        console.log(`Auth Event: ${event}`, session?.user?.id || 'No user');
+      async (event, session) => {
+        setLoading(true); // Indicate loading during auth state transition
         const user = session?.user ?? null;
-
-        // Update user state immediately
         setCurrentUser(user);
 
-        switch (event) {
-          case 'SIGNED_IN':
-            setFeedback(null); // Clear feedback on successful sign in
-            setFormData(prev => ({ ...prev, password: '' })); // Clear password field
-            setIsSigningUp(false); // Ensure login mode
-            if (user) {
-              const profile = await fetchProfile(user.id); // Fetch profile
-              setProfileData(profile);
-            } else {
-                 setProfileData(null); // Should not happen on SIGNED_IN but good practice
-            }
-            break;
-
-          case 'SIGNED_OUT':
-            setProfileData(null); // Clear profile data
-            resetAuthState(); // Reset form, mode, feedback
-            break;
-
-          case 'USER_UPDATED':
-            // Re-fetch profile if user details might have changed (e.g., email update)
-             if (user) {
-                const profile = await fetchProfile(user.id);
-                setProfileData(profile);
-             }
-            break;
-
-           case 'PASSWORD_RECOVERY':
-             setFeedback({ type: 'info', text: 'Password recovery email sent. Check your inbox.' });
-             break;
-
-          case 'TOKEN_REFRESHED':
-             // Usually no UI change needed, but log it
-             console.log('Auth token refreshed.');
-             break;
-
-          default:
-            // Handle other events if necessary
-            break;
+        if (event === 'SIGNED_OUT' || !user) {
+          resetAuthState(); // Reset form state
+          setProfileData(null); // Clear profile data
+          setLoading(false);
+        } else if (event === 'SIGNED_IN') {
+            setFeedback(null);
+            setFormData({ email: '', password: '', full_name: '', phone: '', date_of_birth: '', aadhar_number: '' });
+            setIsSigningUp(false);
+            // Fetch profile data when user signs in
+            const profile = await fetchProfile(user.id);
+            setProfileData(profile);
+            setLoading(false); // Stop loading after SIGNED_IN processed
+        } else if (event === 'USER_UPDATED' && user) {
+             // Optionally re-fetch profile if user details (like email) might change
+             const profile = await fetchProfile(user.id);
+             setProfileData(profile);
+             setLoading(false);
+        } else {
+             setLoading(false); // Stop loading for other events if needed
         }
-        // Ensure initial loading is off if an auth event occurs after initial check
-        // This might happen if the listener fires very quickly.
-        if (initialLoading) setInitialLoading(false);
       }
     );
 
-    // Cleanup listener on component unmount
     return () => {
       authListener?.subscription.unsubscribe();
-      console.log('Auth listener unsubscribed');
     };
-  }, [fetchProfile, resetAuthState, initialLoading]); // Add fetchProfile and resetAuthState to dependencies
+  }, []);
 
-  // Effect for Body Scroll Lock
+  // Helper to reset state (now resets formData)
+  const resetAuthState = (clearFeedback = true) => {
+      setActiveSection('');
+      setFormData({ email: '', password: '', full_name: '', phone: '', date_of_birth: '', aadhar_number: '' });
+      if (clearFeedback) setFeedback(null);
+      setIsSigningUp(false); // Default to login mode
+      // Note: Don't clear profileData here, let the listener handle it
+  }
+
+  // --- Body Scroll Lock ---
   useEffect(() => {
-    const originalOverflow = document.body.style.overflow;
     if (isOpen) {
       document.body.style.overflow = 'hidden';
     } else {
-      document.body.style.overflow = originalOverflow;
+      document.body.style.overflow = 'unset';
     }
-    // Cleanup function
     return () => {
-      document.body.style.overflow = originalOverflow;
+      document.body.style.overflow = 'unset';
     };
   }, [isOpen]);
 
-  // --- Event Handlers ---
+   // --- Input Change Handler (Updates formData) ---
+   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const { name, value } = e.target;
+        setFormData(prev => ({ ...prev, [name]: value }));
+   };
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
-  };
 
+  // --- Map Supabase Errors ---
+   const getFriendlyErrorMessage = (error: AuthError | Error | any): { type: 'error' | 'info', text: string } => {
+       let message = "An unexpected error occurred. Please try again.";
+       let type: 'error' | 'info' = 'error';
+       if (!error) return { type, text: message };
+       const errorMessage = error.message || '';
+       console.error('Supabase Auth/DB Error:', errorMessage);
+
+       if (errorMessage.includes('Invalid login credentials')) {
+            if (!isSigningUp) {
+                message = "Account not found. Please complete the form below to sign up.";
+                type = 'info';
+                setIsSigningUp(true);
+                setFormData(prev => ({ ...prev, password: '' }));
+                setTimeout(() => nameInputRef.current?.focus(), 100);
+            } else {
+                 message = 'Invalid details provided during signup.'; type = 'error';
+            }
+       } else if (errorMessage.includes('User already registered') || errorMessage.includes('already exists')) {
+            message = "This email is already registered. Please log in."; type = 'info';
+            setIsSigningUp(false);
+            setFormData(prev => ({ ...prev, password: '', full_name: '', phone: '', date_of_birth: '', aadhar_number: ''}));
+            setTimeout(() => emailInputRef.current?.focus(), 100);
+       } else if (errorMessage.includes('Password should be at least 6 characters')) {
+            message = 'Password must be at least 6 characters long.'; type = 'error';
+       } else if (errorMessage.includes('Unable to validate email address: invalid format')) {
+            message = 'Please enter a valid email address.'; type = 'error';
+       } else if (errorMessage.includes('Email rate limit exceeded') || errorMessage.includes('too many requests')) {
+            message = 'Too many attempts. Please try again later.'; type = 'error';
+       } else if (errorMessage.includes('check constraint') && errorMessage.includes('phone')) {
+             message = 'Invalid phone number format provided.'; type = 'error';
+       // Check specifically for profile insertion errors related to constraints
+       } else if (errorMessage.includes('profiles_pkey') || (errorMessage.includes('duplicate key') && errorMessage.includes('profiles'))) {
+             message = 'Profile data could not be saved (user might already have one).'; type = 'error';
+       } else if (errorMessage.includes('violates not-null constraint') && errorMessage.includes('full_name')) {
+             message = 'Full Name is required.'; type = 'error';
+       } else if (errorMessage.includes('violates not-null constraint') && errorMessage.includes('aadhar_number')) {
+             message = 'Aadhar Number is required.'; type = 'error';
+       // Add more constraint checks if needed
+       } else {
+            message = errorMessage; type = 'error';
+       }
+       return { type, text: message };
+   };
+
+  // --- Authentication Handler (Supabase) ---
   const handleAuth = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setFeedback(null);
-    setAuthActionLoading(true);
-    const { email, password, full_name, phone, date_of_birth, aadhar_number } = formData;
+    setAuthLoading(true); // Use specific auth loading state
+    const currentFormData = { ...formData };
 
     try {
       if (isSigningUp) {
         // --- Sign Up ---
-        // Basic Frontend Validation
-        if (!full_name?.trim()) throw new Error("Full Name is required for signup.");
-        if (!aadhar_number?.trim()) throw new Error("Aadhar Number is required for signup.");
-        const aadharRegex = /^\d{12}$/;
-        if (!aadharRegex.test(aadhar_number)) throw new Error("Aadhar number must be 12 digits");
-        if (password.length < 6) throw new Error("Password should be at least 6 characters");
 
-        // 1. Sign up user in Supabase Auth
+        // --- Client-Side Validation ---
+         if (!currentFormData.full_name) {
+             setFeedback({type: 'error', text: "Full name is required."});
+             setAuthLoading(false);
+             nameInputRef.current?.focus();
+             return;
+         }
+         if (!currentFormData.aadhar_number) {
+             setFeedback({type: 'error', text: "Aadhar number is required."});
+             setAuthLoading(false);
+             aadharInputRef.current?.focus();
+             return;
+         }
+         const aadharRegex = /^\d{12}$/;
+         if (!aadharRegex.test(currentFormData.aadhar_number)) {
+             setFeedback({type: 'error', text: "Please enter a valid 12-digit Aadhar number."});
+             setAuthLoading(false);
+             aadharInputRef.current?.focus();
+             return;
+         }
+         if (currentFormData.password.length < 6) {
+             setFeedback({type: 'error', text: "Password must be at least 6 characters."});
+             setAuthLoading(false);
+             // Consider focusing password input
+             return;
+         }
+        // --- End Validation ---
+
+
+        // 1. Sign up the user in Auth
         const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
-          email: email.trim(),
-          password: password,
+          email: currentFormData.email,
+          password: currentFormData.password,
         });
 
         if (signUpError) throw signUpError;
-        if (!signUpData.user) throw new Error("Signup successful but user data is missing.");
+        if (!signUpData.user) throw new Error("Signup successful but user data missing.");
+
         console.log('Auth signup successful for:', signUpData.user.email);
 
-        // 2. Insert profile data into 'profiles' table
-        // *** RLS POLICY REQUIRED FOR INSERT ***
-        // Example: Allow authenticated users to insert their own profile
-        // Table: profiles | For INSERT operation | Using expression: (auth.uid() = id) | With check expression: (auth.uid() = id)
+        // 2. Insert Profile Data
+        // Use a separate try/catch for profile insert to handle its errors distinctly
         let profileInsertSuccess = false;
         try {
-            console.log('Attempting profile insert for user:', signUpData.user.id);
-            const { error: profileError } = await supabase.from('profiles').insert({
-                id: signUpData.user.id, // Link to the auth user
-                email: signUpData.user.email, // Store email in profile too (optional but common)
-                full_name: full_name.trim(),
-                phone: phone?.trim() || null, // Store null if empty
-                date_of_birth: date_of_birth || null, // Store null if empty
-                aadhar_number: aadhar_number.trim(),
-            });
-            // Removed .single() as insert doesn't return the row by default without specific SELECT in RPC or header. Checking error is enough.
+            console.log('Attempting to insert profile for user:', signUpData.user.id);
+            const { error: profileError } = await supabase
+                .from('profiles')
+                .insert({
+                    id: signUpData.user.id,
+                    email: signUpData.user.email,
+                    full_name: currentFormData.full_name, // Required
+                    phone: currentFormData.phone || null,
+                    date_of_birth: currentFormData.date_of_birth || null,
+                    aadhar_number: currentFormData.aadhar_number, // Required (already validated)
+                    // Timestamps handled by DB
+                });
 
-            if (profileError) throw profileError; // Throw profile-specific error
-
-            console.log('Profile created successfully in DB.');
-            profileInsertSuccess = true;
-
+            if (profileError) {
+                 // Throw profile error to be caught by the inner catch
+                 throw profileError;
+            } else {
+                console.log('Supabase profile created successfully.');
+                profileInsertSuccess = true;
+            }
         } catch (profileInsertError: any) {
-            console.error('Error creating Supabase profile after signup:', profileInsertError);
-            // Provide feedback but let the user know account *might* be created
+            console.error('Error creating Supabase profile after signup:', profileInsertError.message);
+            // Set feedback about profile failure, but account might be created
+            const profileFeedback = getFriendlyErrorMessage(profileInsertError);
             setFeedback({
-                type: 'info', // Info because auth succeeded, but profile failed
-                text: `Account may be created, but saving profile failed: ${getFriendlyErrorMessage(profileInsertError)}. Check email for verification. Contact support if needed.`
+                type: 'info', // Use info as account creation might need verification
+                text: `Account created, but profile save failed: ${profileFeedback.text}. Please check your email.`
             });
-            // Do not set authActionLoading to false here, let the finally block handle it.
-            // The auth listener will handle the user state based on signUpData.session
+             // If profile fails, we still proceed to check session status below
         }
 
-        // 3. Provide feedback based on session (email verification needed?) and profile success
-        if (!signUpData.session) { // Email verification likely required
-             if (profileInsertSuccess && (!feedback || feedback.type !== 'info')) { // Don't overwrite profile error
-                 setFeedback({ type: 'success', text: 'Account created! Check your email (and spam folder) for a confirmation link.' });
+        // 3. Handle session / email verification
+        if (!signUpData.session) { // Email verification needed
+            if (profileInsertSuccess) { // Only show generic success if profile also saved
+                 setFeedback({ type: 'success', text: 'Account created! Check your email (including spam) for a confirmation link.' });
+            }
+            // else: feedback about profile failure was already set
+            setIsSigningUp(false);
+            setFormData(prev => ({ ...prev, password: '', full_name: '', phone: '', date_of_birth: '', aadhar_number: '' }));
+            // No auth listener yet, so stop loading manually
+            setAuthLoading(false);
+        } else { // Auto-confirmed / logged in
+             if (profileInsertSuccess) {
+                 setFeedback({ type: 'success', text: 'Account created successfully!' });
              }
-             // Keep form data (except password) in case user needs to retry profile save later? Or clear? Let's clear for now.
-             // setFormData(prev => ({ ...prev, password: '', full_name: '', phone: '', date_of_birth: '', aadhar_number: '' }));
-             setIsSigningUp(false); // Switch to login view after successful signup request
-        } else { // Auto-confirmed / logged in immediately
-             // The 'SIGNED_IN' event in the listener will handle profile fetching & UI update.
-             if (profileInsertSuccess && (!feedback || feedback.type !== 'info')) {
-                 setFeedback({ type: 'success', text: 'Account created and logged in!' });
-             }
-             // No need to manually set currentUser/profileData here, listener does it.
+             // else: feedback about profile failure was already set
+             // Auth listener will handle UI update and stop loading
         }
 
       } else {
         // --- Log In ---
         const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-          email: email.trim(),
-          password: password,
+          email: currentFormData.email,
+          password: currentFormData.password,
         });
 
-        if (signInError) throw signInError;
+        if (signInError) throw signInError; // Let catch block handle
 
-        console.log('Login request successful for:', signInData.user?.email);
-        // Feedback/state updates are handled by the 'SIGNED_IN' listener
-        // Clear password field after successful login attempt
-        setFormData(prev => ({ ...prev, password: '' }));
+        console.log('Logged in:', signInData.user?.email);
+        // Auth listener ('SIGNED_IN') handles profile fetch, UI update, loading state
       }
 
     } catch (error: any) {
-      console.error("Authentication/Signup Error caught in handler:", error);
-      const friendlyError = getFriendlyErrorMessage(error);
-      setFeedback({ type: 'error', text: friendlyError });
-      // Optional: Focus logic based on error (already partly in getFriendlyErrorMessage)
-      if (friendlyError.includes('password') || friendlyError.includes('Password')) {
-         passwordInputRef.current?.focus();
-         passwordInputRef.current?.select();
-      } else if (friendlyError.includes('email') || friendlyError.includes('Email')) {
-         emailInputRef.current?.focus();
-         emailInputRef.current?.select();
+      // Catch errors from Auth calls or profile insert re-throw
+      const feedbackMessage = getFriendlyErrorMessage(error);
+      setFeedback(feedbackMessage);
+      setAuthLoading(false); // Stop auth loading on any error
+
+      // Focus logic (check if still in login mode after error processing)
+      if (!isSigningUp && emailInputRef.current && feedbackMessage.type === 'error') {
+          emailInputRef.current.focus();
+          emailInputRef.current.select();
       }
-    } finally {
-      // Stop the button loading indicator regardless of success or error
-      setAuthActionLoading(false);
+      // No need for separate signup focus here, error messages guide user
     }
+    // Note: setAuthLoading(false) is handled in success paths by listener or manually if no session
   };
 
+  // --- Logout Handler (Supabase) ---
   const handleLogout = async () => {
+    setAuthLoading(true); // Use auth loading state
     setFeedback(null);
-    setAuthActionLoading(true);
-    try {
-      const { error } = await supabase.auth.signOut();
-      if (error) {
-        console.error('Logout Error:', error.message);
-        setFeedback({ type: 'error', text: `Logout failed: ${error.message}` });
-      } else {
-        console.log('Logout successful request.');
-        // State reset (currentUser=null, profileData=null, form reset) is handled by the 'SIGNED_OUT' listener
-      }
-    } catch (e: any) {
-      console.error("Exception during logout:", e.message);
-      setFeedback({ type: 'error', text: "An unexpected error occurred during logout." });
-    } finally {
-      setAuthActionLoading(false);
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      console.error('Logout Error:', error.message);
+      setFeedback({ type: 'error', text: "Failed to log out. Please try again." });
+      setAuthLoading(false); // Stop loading on error
     }
+    // Auth listener ('SIGNED_OUT') handles state reset and stops loading on success
   };
 
+  // --- Toggle Signup/Login View ---
   const toggleAuthMode = () => {
     const enteringSignupMode = !isSigningUp;
     setIsSigningUp(enteringSignupMode);
     setFormData(prev => ({
-      // Keep email if user started typing it
-      email: prev.email,
-      // Clear password and profile fields
-      password: '', full_name: '', phone: '', date_of_birth: '', aadhar_number: ''
+        email: prev.email, // Keep email
+        password: '', full_name: '', phone: '', date_of_birth: '', aadhar_number: ''
     }));
-    setFeedback(null); // Clear feedback when toggling
-    // Focus appropriate field after toggle
+    setFeedback(null);
     setTimeout(() => {
-      if (enteringSignupMode) {
-        nameInputRef.current?.focus();
-      } else {
-        emailInputRef.current?.focus();
-      }
-    }, 100); // Small delay helps ensure element is focusable
-  };
+        if (enteringSignupMode && nameInputRef.current) nameInputRef.current.focus();
+        else if (!enteringSignupMode && emailInputRef.current) emailInputRef.current.focus();
+    }, 100);
+  }
 
   // --- Reusable Input Field Classes ---
   const inputClasses = (hasError: boolean = false) =>
-    `w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-colors text-gray-800 placeholder-gray-400 ${
+    `w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-colors ${
       hasError ? 'border-red-500 ring-red-500' : 'border-gray-300'
     } disabled:bg-gray-100 disabled:cursor-not-allowed`;
 
-    // Determine overall loading state for disabling inputs etc.
-    // User is interacting, so prioritize authActionLoading. If not, show profileLoading.
-    // InitialLoading is handled separately for the main skeleton/loader.
-    const isBusy = authActionLoading || profileLoading;
-
-  // --- Render Logic ---
+  // --- Render Logic (JSX) ---
   return (
     <>
       {/* --- Overlay --- */}
       <div
-        onClick={isBusy ? undefined : onClose} // Prevent close during any loading action
-        className={`fixed inset-0 bg-black bg-opacity-60 backdrop-blur-sm transition-opacity duration-300 z-40 ${
-          isOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
-        }`}
+        onClick={authLoading || loading ? undefined : onClose} // Prevent close during any loading
+        className={`fixed inset-0 bg-black bg-opacity-60 backdrop-blur-sm transition-opacity duration-300 z-40 ${isOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
         aria-hidden={!isOpen}
       />
 
       {/* --- Sidebar Panel --- */}
       <div
-        className={`fixed top-0 right-0 h-full w-full max-w-sm bg-white shadow-xl transform transition-transform duration-300 ease-in-out z-50 flex flex-col ${
-          isOpen ? 'translate-x-0' : 'translate-x-full'
-        }`}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="sidebar-title"
+        className={`fixed top-0 right-0 h-full w-full max-w-sm bg-white shadow-xl transform transition-transform duration-300 ease-in-out z-50 flex flex-col ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}
+        role="dialog" aria-modal="true" aria-labelledby="sidebar-title"
       >
         {/* --- Header --- */}
         <div className="flex items-center justify-between p-4 border-b border-gray-200 flex-shrink-0">
           <h2 id="sidebar-title" className="text-xl font-semibold text-gray-800">
-            {initialLoading ? 'Loading Account...' :
-             currentUser ? 'My Account' :
-             isSigningUp ? 'Create Account' :
-             'Log In'}
+             {/* Show loading only if initial check is happening */}
+            {loading && !currentUser ? 'Loading...' : (currentUser ? 'My Account' : (isSigningUp ? 'Create Account' : 'Log In'))}
           </h2>
           <button
             onClick={onClose}
             className="p-1 rounded-full text-gray-500 hover:text-gray-800 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-1 transition-colors"
             aria-label="Close sidebar"
-            disabled={isBusy || initialLoading} // Disable close during any loading
+            disabled={authLoading || (loading && !currentUser)} // Disable close during auth actions or initial load
           >
             <X size={24} />
           </button>
@@ -484,151 +414,124 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
 
           {/* --- Feedback Display Area --- */}
           {feedback && (
-            <div className={`mb-4 p-3 border rounded-md text-sm flex items-start ${
-              feedback.type === 'error' ? 'bg-red-50 border-red-300 text-red-800' :
-              feedback.type === 'success' ? 'bg-green-50 border-green-300 text-green-800' :
-              'bg-blue-50 border-blue-300 text-blue-800' // Info
-            }`}>
-              <AlertCircle size={18} className="mr-2 flex-shrink-0 mt-0.5" />
-              <span>{feedback.text}</span>
-            </div>
-          )}
+             <div className={`mb-4 p-3 border rounded-md text-sm flex items-start ${
+                 feedback.type === 'error' ? 'bg-red-50 border-red-300 text-red-800' :
+                 feedback.type === 'success' ? 'bg-green-50 border-green-300 text-green-800' :
+                 'bg-blue-50 border-blue-300 text-blue-800'
+             }`}>
+                 <AlertCircle size={18} className="mr-2 flex-shrink-0 mt-0.5" />
+                 <span>{feedback.text}</span>
+             </div>
+           )}
 
-          {/* --- Initial Loading Indicator --- */}
-          {initialLoading && (
-            <div className="flex flex-col justify-center items-center py-10 text-center">
-              <Loader2 size={32} className="animate-spin text-orange-600" />
-              <span className="mt-3 text-gray-600">Loading data...</span>
+          {/* --- Loading Indicator (Initial Load) --- */}
+          {/* Show only during initial session check (loading=true, currentUser=null) */}
+          {loading && !currentUser && !authLoading && (
+            <div className="flex justify-center items-center py-10">
+                 <Loader2 size={32} className="animate-spin text-orange-600" />
             </div>
           )}
 
           {/* --- Logged In View --- */}
-          {!initialLoading && currentUser && (
+          {!loading && currentUser ? ( // Render only if initial load is done and user exists
             <div className="space-y-6">
-              {/* Welcome Message & Profile Loading state */}
-              <div className="flex items-center justify-between">
-                 <p className="text-gray-600 truncate">
-                    Welcome, <span className='font-medium text-gray-800'>{profileData?.full_name || currentUser.email || 'User'}</span>!
-                 </p>
-                 {profileLoading && <Loader2 size={16} className="animate-spin text-orange-500 ml-2" />}
-              </div>
-
+              {/* Welcome Message - Use profile name if available, fallback to email */}
+              <p className="text-gray-600 truncate">
+                    Welcome, <span className='font-medium'>{profileData?.full_name || currentUser.email}</span>!
+                    {/* Optional: Show a mini-loader while profile is fetching after login */}
+                    {loading && !profileData && <Loader2 size={14} className="inline-block ml-2 animate-spin" />}
+              </p>
 
               {/* Dashboard Navigation */}
               <nav className="space-y-2">
-                {/* Added disabled={isBusy} to nav buttons */}
-                <button className={`flex items-center w-full px-4 py-3 rounded-lg text-left text-gray-700 hover:bg-orange-50 hover:text-orange-600 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-1 transition-colors disabled:opacity-50 ${activeSection === 'tracking' ? 'bg-orange-100 text-orange-700 font-medium' : ''}`} onClick={() => setActiveSection('tracking')} disabled={isBusy}> <Truck size={18} className="mr-3 flex-shrink-0" /> Order Tracking </button>
-                <button className={`flex items-center w-full px-4 py-3 rounded-lg text-left text-gray-700 hover:bg-orange-50 hover:text-orange-600 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-1 transition-colors disabled:opacity-50 ${activeSection === 'delivery' ? 'bg-orange-100 text-orange-700 font-medium' : ''}`} onClick={() => setActiveSection('delivery')} disabled={isBusy}> <MapPin size={18} className="mr-3 flex-shrink-0" /> Delivery Details </button>
-                <button className={`flex items-center w-full px-4 py-3 rounded-lg text-left text-gray-700 hover:bg-orange-50 hover:text-orange-600 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-1 transition-colors disabled:opacity-50 ${activeSection === 'orders' ? 'bg-orange-100 text-orange-700 font-medium' : ''}`} onClick={() => setActiveSection('orders')} disabled={isBusy}> <ClipboardList size={18} className="mr-3 flex-shrink-0" /> My Orders </button>
+                 <button className={`flex items-center w-full px-4 py-3 rounded-lg text-left text-gray-700 hover:bg-orange-50 hover:text-orange-600 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-1 transition-colors ${activeSection === 'tracking' ? 'bg-orange-100 text-orange-700 font-medium' : ''}`} onClick={() => setActiveSection('tracking')} disabled={authLoading}> <Truck size={18} className="mr-3 flex-shrink-0" /> Order Tracking </button>
+                 <button className={`flex items-center w-full px-4 py-3 rounded-lg text-left text-gray-700 hover:bg-orange-50 hover:text-orange-600 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-1 transition-colors ${activeSection === 'delivery' ? 'bg-orange-100 text-orange-700 font-medium' : ''}`} onClick={() => setActiveSection('delivery')} disabled={authLoading}> <MapPin size={18} className="mr-3 flex-shrink-0" /> Delivery Details </button>
+                 <button className={`flex items-center w-full px-4 py-3 rounded-lg text-left text-gray-700 hover:bg-orange-50 hover:text-orange-600 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-1 transition-colors ${activeSection === 'orders' ? 'bg-orange-100 text-orange-700 font-medium' : ''}`} onClick={() => setActiveSection('orders')} disabled={authLoading}> <ClipboardList size={18} className="mr-3 flex-shrink-0" /> My Orders </button>
               </nav>
 
               {/* Dashboard Content Display */}
               <div className="mt-6 p-4 bg-gray-50 rounded-lg min-h-[100px]">
-                {/* Placeholder Content */}
-                {activeSection === 'tracking' && (<div><h3 className="text-lg font-semibold mb-2 text-gray-800">Order Tracking</h3><p className="text-sm text-gray-600">Tracking details will appear here.</p></div>)}
-                {activeSection === 'delivery' && (<div><h3 className="text-lg font-semibold mb-2 text-gray-800">Delivery Details</h3><p className="text-sm text-gray-600">View or update your saved addresses.</p>{/* Add profile editing form here? */}</div>)}
-                {activeSection === 'orders' && (<div><h3 className="text-lg font-semibold mb-2 text-gray-800">My Orders</h3><p className="text-sm text-gray-600">Your past order history.</p></div>)}
-                {!activeSection && !profileLoading && (<p className="text-sm text-gray-500 text-center pt-4">Select an option above to view details.</p>)}
-                 {profileLoading && activeSection && (<div className="flex justify-center items-center h-[80px]"><Loader2 size={24} className="animate-spin text-orange-500"/></div>)}
+                  {activeSection === 'tracking' && (<div><h3 className="text-lg font-semibold mb-2 text-gray-800">Order Tracking</h3><p className="text-sm text-gray-600">Tracking details here.</p></div>)}
+                  {activeSection === 'delivery' && (<div><h3 className="text-lg font-semibold mb-2 text-gray-800">Delivery Details</h3><p className="text-sm text-gray-600">Manage addresses here.</p></div>)}
+                  {activeSection === 'orders' && (<div><h3 className="text-lg font-semibold mb-2 text-gray-800">My Orders</h3><p className="text-sm text-gray-600">Order history here.</p></div>)}
+                  {!activeSection && (<p className="text-sm text-gray-500 text-center pt-4">Select an option.</p>)}
               </div>
 
               {/* Logout Button */}
-              <button
-                 onClick={handleLogout}
-                 disabled={authActionLoading} // Only disable for auth actions
-                 className="flex items-center justify-center w-full px-4 py-2 mt-6 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-1 transition-colors disabled:opacity-50"
-               >
-                {authActionLoading ? (
-                  <Loader2 size={18} className="mr-2 animate-spin" />
-                ) : (
-                  <LogOut size={18} className="mr-2" />
-                )}
-                {authActionLoading ? 'Logging Out...' : 'Logout'}
+              <button onClick={handleLogout} disabled={authLoading} className="flex items-center justify-center w-full px-4 py-2 mt-6 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-1 transition-colors disabled:opacity-50">
+                  {authLoading ? <Loader2 size={18} className="mr-2 animate-spin" /> : <LogOut size={18} className="mr-2" />}
+                  {authLoading ? 'Processing...' : 'Logout'}
               </button>
             </div>
-          )}
+          ) : (
+            // --- Logged Out View (Login OR Signup Form) ---
+             // Render only if initial load done and no user
+             !loading && !currentUser && (
+               <form onSubmit={handleAuth} className="space-y-4">
 
-          {/* --- Logged Out View (Login OR Signup Form) --- */}
-          {!initialLoading && !currentUser && (
-            <form onSubmit={handleAuth} className="space-y-4">
-
-              {/* --- Signup Specific Fields --- */}
-              {isSigningUp && (
-                <>
-                  <div>
-                    <label htmlFor="full_name" className="block text-sm font-medium text-gray-700 mb-1">Full Name <span className="text-red-600">*</span></label>
-                    <input ref={nameInputRef} id="full_name" name="full_name" type="text" value={formData.full_name ?? ''} onChange={handleInputChange} placeholder="Your full name" className={inputClasses(feedback?.text.includes("Full Name"))} required disabled={authActionLoading} />
-                  </div>
-                   <div>
+                {/* --- Fields Visible ONLY in Signup Mode --- */}
+                {isSigningUp && (
+                    <>
+                     <div>
+                        <label htmlFor="full_name" className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
+                        <input ref={nameInputRef} id="full_name" name="full_name" type="text" value={formData.full_name} onChange={handleInputChange} placeholder="Your full name" className={inputClasses()} required disabled={authLoading} />
+                    </div>
+                     <div>
                         <label htmlFor="phone" className="block text-sm font-medium text-gray-700 mb-1">Phone Number <span className="text-xs text-gray-500">(Optional)</span></label>
-                        <input id="phone" name="phone" type="tel" value={formData.phone ?? ''} onChange={handleInputChange} placeholder="e.g., 9876543210" className={inputClasses()} disabled={authActionLoading} />
+                        <input id="phone" name="phone" type="tel" value={formData.phone} onChange={handleInputChange} placeholder="e.g., 9876543210" className={inputClasses()} disabled={authLoading} />
                     </div>
                      <div>
                         <label htmlFor="date_of_birth" className="block text-sm font-medium text-gray-700 mb-1">Date of Birth <span className="text-xs text-gray-500">(Optional)</span></label>
-                        <input id="date_of_birth" name="date_of_birth" type="date" value={formData.date_of_birth ?? ''} onChange={handleInputChange} max={new Date().toISOString().split("T")[0]} /* Prevent future dates */ className={inputClasses()} disabled={authActionLoading} />
+                        <input id="date_of_birth" name="date_of_birth" type="date" value={formData.date_of_birth} onChange={handleInputChange} max={new Date().toISOString().split("T")[0]}
+                           className={inputClasses()} disabled={authLoading} />
                     </div>
-                  <div>
-                    <label htmlFor="aadhar_number" className="block text-sm font-medium text-gray-700 mb-1">Aadhar Number <span className="text-red-600">*</span></label>
-                    <input ref={aadharInputRef} id="aadhar_number" name="aadhar_number" type="text" inputMode="numeric" pattern="\d{12}" title="Enter 12-digit Aadhar number" value={formData.aadhar_number ?? ''} onChange={handleInputChange} placeholder="1234 5678 9012" className={inputClasses(feedback?.text.includes("Aadhar"))} required disabled={authActionLoading} />
-                    <p className="text-xs text-gray-500 mt-1">Enter 12 digits only. <span className='font-semibold'>Handled securely.</span></p>
-                  </div>
-                  <hr className="my-2 border-gray-200"/>
-                </>
-              )}
-
-              {/* --- Email (Always Visible) --- */}
-              <div>
-                <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">Email <span className="text-red-600">*</span></label>
-                <input ref={emailInputRef} id="email" name="email" type="email" value={formData.email} onChange={handleInputChange} placeholder="you@example.com" className={inputClasses(feedback?.type === 'error' && (feedback.text.includes('email') || feedback.text.includes('credentials')))} required disabled={authActionLoading} />
-              </div>
-
-              {/* --- Password (Always Visible) --- */}
-              <div>
-                <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">Password <span className="text-red-600">*</span></label>
-                <input ref={passwordInputRef} id="password" name="password" type="password" value={formData.password} onChange={handleInputChange} placeholder={isSigningUp ? "Create password (min. 6 chars)" : "••••••••"} className={inputClasses(feedback?.type === 'error' && (feedback.text.includes('Password') || feedback.text.includes('credentials')))} required minLength={isSigningUp ? 6 : undefined} disabled={authActionLoading} />
-                 {!isSigningUp && (
-                    <div className="text-right mt-1">
-                        {/* TODO: Implement password recovery flow */}
-                      <button type="button" className="text-sm text-orange-600 hover:underline focus:outline-none" onClick={() => setFeedback({type: 'info', text:'Password recovery feature not yet implemented.'})} disabled={authActionLoading}>Forgot password?</button>
+                    <div>
+                         {/* Aadhar - Removed optional label, added required attribute */}
+                        <label htmlFor="aadhar_number" className="block text-sm font-medium text-gray-700 mb-1">Aadhar Number</label>
+                        <input ref={aadharInputRef} id="aadhar_number" name="aadhar_number" type="text" inputMode="numeric" pattern="\d{12}" title="Enter 12-digit Aadhar number" value={formData.aadhar_number} onChange={handleInputChange} placeholder="1234 5678 9012" className={inputClasses()} required disabled={authLoading} />
+                         <p className="text-xs text-gray-500 mt-1">Enter 12-digit number. <span className='font-semibold'>Handled securely.</span></p>
                     </div>
-                  )}
-              </div>
-
-              {/* --- Submit Button --- */}
-              <button
-                 type="submit"
-                 disabled={authActionLoading} // Disable only during auth actions
-                 className="w-full bg-orange-600 text-white py-2.5 px-4 rounded-lg font-semibold hover:bg-orange-700 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2 transition-colors disabled:opacity-70 flex items-center justify-center"
-              >
-                {authActionLoading ? (
-                  <Loader2 size={20} className="mr-2 animate-spin" />
-                ) : isSigningUp ? (
-                  <UserPlus size={18} className="mr-2" />
-                ) : (
-                  // Use LogOut icon rotated 180deg for Log In visual cue
-                  <LogOut size={18} className="mr-2 transform rotate-180" />
+                    <hr className="my-2 border-gray-200"/>
+                    </>
                 )}
-                {authActionLoading ? 'Processing...' : isSigningUp ? 'Sign Up' : 'Log In'}
-              </button>
-            </form>
+
+                 {/* --- Email Input (Always Visible) --- */}
+                 <div>
+                   <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+                   <input ref={emailInputRef} id="email" name="email" type="email" value={formData.email} onChange={handleInputChange} placeholder="you@example.com" className={inputClasses(feedback?.type === 'error')} required disabled={authLoading} />
+                 </div>
+
+                 {/* --- Password Input (Always Visible) --- */}
+                 <div>
+                   <label htmlFor="password"className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+                   <input id="password" name="password" type="password" value={formData.password} onChange={handleInputChange} placeholder={isSigningUp ? "Create password (min. 6 chars)" : "••••••••"} className={inputClasses(feedback?.type === 'error')} required minLength={isSigningUp ? 6 : undefined} disabled={authLoading} />
+                    {!isSigningUp && (
+                        <div className="text-right mt-1">
+                          <button type="button" className="text-sm text-orange-600 hover:underline focus:outline-none" onClick={() => setFeedback({type: 'info', text:'Password recovery coming soon!'})} disabled={authLoading}>Forgot password?</button>
+                        </div>
+                      )}
+                 </div>
+
+                 {/* --- Submit Button --- */}
+                 <button type="submit" disabled={authLoading} className="w-full bg-orange-600 text-white py-2.5 px-4 rounded-lg font-semibold hover:bg-orange-700 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2 transition-colors disabled:opacity-70 flex items-center justify-center">
+                    {authLoading && <Loader2 size={20} className="mr-2 animate-spin" />}
+                    {!authLoading && isSigningUp && <UserPlus size={18} className="mr-2" />}
+                    {authLoading ? 'Processing...' : (isSigningUp ? 'Sign Up' : 'Log In')}
+                 </button>
+               </form>
+            )
           )}
         </div> {/* End Main Content Area */}
 
         {/* --- Footer / Toggle Auth Mode --- */}
-        {/* Show toggle only if not initial loading and not logged in */}
-        {!initialLoading && !currentUser && (
-          <div className="p-4 border-t border-gray-200 text-center flex-shrink-0 bg-white">
-            <button
-               onClick={toggleAuthMode}
-               disabled={authActionLoading} // Disable during auth actions
-               className="text-sm text-orange-600 hover:underline focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
-            >
+        {!loading && !currentUser && ( // Show only if initial load done and not logged in
+           <div className="p-4 border-t border-gray-200 text-center flex-shrink-0">
+            <button onClick={toggleAuthMode} disabled={authLoading} className="text-sm text-orange-600 hover:underline focus:outline-none disabled:opacity-50">
               {isSigningUp ? 'Already have an account? Log In' : "Don't have an account? Sign Up"}
             </button>
           </div>
         )}
-        {/* Optional small spacer at the very bottom if needed */}
-        {/* <div className="flex-shrink-0 h-2 bg-white"></div> */}
+         <div className="flex-shrink-0 h-4"></div>
       </div> {/* End Sidebar Panel */}
     </>
   );

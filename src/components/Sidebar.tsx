@@ -1,409 +1,327 @@
 // src/components/Sidebar.tsx
-import React, { useState, useEffect, useRef, useCallback } from 'react'; // Added useCallback
+import React, { useState, useEffect, useRef } from 'react';
 import { X, Truck, MapPin, LogOut, ClipboardList, Loader2, AlertCircle, UserPlus } from 'lucide-react'; // Added UserPlus
 import { supabase } from '../supabase'; // Ensure this path is correct
-import { User, AuthError, Session } from '@supabase/supabase-js'; // Added Session
+import { User, AuthError } from '@supabase/supabase-js';
 
-// --- Interfaces ---
+// --- Define Prop Types ---
 interface SidebarProps {
   isOpen: boolean;
   onClose: () => void;
 }
+
+// --- Feedback Message Types ---
 interface FeedbackMessage {
     type: 'error' | 'success' | 'info';
     text: string;
 }
-// Define Profile structure (from complex component)
-interface Profile {
-    id?: string;
-    full_name: string | null;
-    phone: string | null;
-    date_of_birth: string | null;
-    aadhar_number: string | null;
-    email?: string | null;
-}
-// Use combined FormData (from complex component)
-interface FormData extends Profile {
+
+// --- Combined Form Data Type ---
+interface FormData {
     email: string;
     password: string;
+    full_name: string; // Added
+    phone: string;     // Added
+    date_of_birth: string; // Added (YYYY-MM-DD format)
+    aadhar_number: string; // Added - *** CAUTION: Handle securely! ***
 }
 
 const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
   // --- State ---
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  // Add profileData state (from complex component)
-  const [profileData, setProfileData] = useState<Profile | null>(null);
-  // Use the combined formData state (from complex component)
+  // Replace loginData with comprehensive formData
   const [formData, setFormData] = useState<FormData>({
-      email: '', password: '', full_name: '', phone: '', date_of_birth: '', aadhar_number: '',
+      email: '',
+      password: '',
+      full_name: '',
+      phone: '',
+      date_of_birth: '',
+      aadhar_number: '',
   });
   const [feedback, setFeedback] = useState<FeedbackMessage | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
   const [isSigningUp, setIsSigningUp] = useState<boolean>(false);
   const [activeSection, setActiveSection] = useState<string>('');
-
-  // --- Granular Loading States (Adopted from complex component) ---
-  const [initialLoading, setInitialLoading] = useState<boolean>(true);
-  const [authActionLoading, setAuthActionLoading] = useState<boolean>(false);
-  const [profileLoading, setProfileLoading] = useState<boolean>(false);
-
-  // --- Refs (Adopted from complex component) ---
   const emailInputRef = useRef<HTMLInputElement>(null);
-  const nameInputRef = useRef<HTMLInputElement>(null);
-  const aadharInputRef = useRef<HTMLInputElement>(null);
-  const passwordInputRef = useRef<HTMLInputElement>(null);
+  const nameInputRef = useRef<HTMLInputElement>(null); // Ref for name input
 
-  // --- Helper: Reset Auth State (Adapted for new state) ---
-  const resetAuthState = useCallback((clearFeedback = true) => {
-      console.log('(Helper) Resetting Auth State');
-      setActiveSection('');
-      // Reset the combined formData
-      setFormData({ email: '', password: '', full_name: '', phone: '', date_of_birth: '', aadhar_number: '' });
-      if (clearFeedback) setFeedback(null);
-      setIsSigningUp(false);
-      setAuthActionLoading(false);
-      // currentUser and profileData handled by listener
-  }, []); // No dependencies needed
-
-  // --- Helper: Fetch User Profile (Adopted from complex component) ---
-  const fetchProfile = useCallback(async (userId: string, isMountedCheck?: () => boolean): Promise<Profile | null> => {
-      console.log(`(Helper) Fetching profile for user ID: ${userId}`);
-      setProfileLoading(true);
-      // Safety check
-      if (isMountedCheck && !isMountedCheck()) { console.log("(Helper fetchProfile) Unmounted."); return null; }
-
-      try {
-          // *** RLS SELECT POLICY NEEDED ***
-          const { data, error, status } = await supabase
-              .from('profiles')
-              .select('full_name, phone, date_of_birth, aadhar_number, email')
-              .eq('id', userId)
-              .maybeSingle();
-
-          if (isMountedCheck && !isMountedCheck()) { console.log("(Helper fetchProfile) Unmounted after await."); return null; }
-
-          if (error && status !== 406) {
-              console.error('(Helper fetchProfile) Error:', error.message, status);
-              setFeedback({ type: 'error', text: `Could not load profile: ${error.message}. Check RLS.` });
-              return null;
-          }
-          console.log('(Helper fetchProfile) Data fetched:', data);
-          return (data as Profile) || null; // Return data or null if not found
-      } catch (err: any) {
-          console.error('(Helper fetchProfile) Exception:', err.message);
-          if (isMountedCheck && !isMountedCheck()) { console.log("(Helper fetchProfile) Unmounted during exception."); return null; }
-          setFeedback({ type: 'error', text: 'An error occurred fetching profile.' });
-          return null;
-      } finally {
-          if (!isMountedCheck || isMountedCheck()) {
-             console.log("(Helper fetchProfile) Setting profileLoading false.");
-             setProfileLoading(false);
-          }
+  // --- Listener for Auth State Changes (Supabase) ---
+  useEffect(() => {
+    setLoading(true);
+    supabase.auth.getSession().then(({ data: { session }, error }) => {
+      if (error) console.error("Error getting initial session:", error.message);
+      setCurrentUser(session?.user ?? null);
+      if (!session?.user) {
+         resetAuthState(false); // Reset if no user initially
       }
-  }, []); // No dependencies
-
-   // --- Listener for Auth State Changes (Enhanced) ---
-   useEffect(() => {
-    let isMounted = true;
-    console.log("Effect Mount: Initializing...");
-    setInitialLoading(true);
-    setProfileData(null);
-    setCurrentUser(null);
-
-    supabase.auth.getSession().then(async ({ data: { session }, error }) => {
-       if (!isMounted) return;
-       console.log("Effect getSession: Completed.");
-
-       if (error) {
-          console.error("Effect getSession: ERROR", error);
-          // Reset state even on error
-          setCurrentUser(null); setProfileData(null); resetAuthState(false);
-          setFeedback({ type: 'error', text: 'Failed to check session.' });
-          setInitialLoading(false); // Stop initial loading
-          return;
-       }
-
-       const user = session?.user ?? null;
-       console.log('Effect getSession: User ID:', user?.id || 'None');
-       setCurrentUser(user); // Set user state
-
-       if (user) {
-          console.log('Effect getSession: Fetching initial profile...');
-          try {
-             const profile = await fetchProfile(user.id, () => isMounted);
-             if (isMounted) setProfileData(profile);
-          } catch (profileError) {
-             console.error("Effect getSession: Initial profile fetch error:", profileError);
-             if (isMounted) {
-                 setProfileData(null);
-                 setFeedback({ type: 'error', text: 'Could not load profile.' });
-             }
-          }
-       } else {
-          if (isMounted) resetAuthState(false); // Reset form if no user
-       }
-
-       // Stop initial loading indicator ONLY after session check and potential profile fetch are done
-       if (isMounted) {
-          console.log("Effect getSession: Setting initialLoading FALSE.");
-          setInitialLoading(false);
-       }
-
-    }).catch(exception => {
-       if (!isMounted) return;
-       console.error("Effect getSession: EXCEPTION", exception);
-       setCurrentUser(null); setProfileData(null); resetAuthState(false);
-       setFeedback({ type: 'error', text: 'Error checking session.' });
-       setInitialLoading(false); // Stop initial loading
+      setLoading(false);
     });
 
-    // --- Listener for subsequent changes ---
     const { data: authListener } = supabase.auth.onAuthStateChange(
-      async (event: string, session: Session | null) => {
-         if (!isMounted) return;
-         console.log(`Effect Listener: Event: ${event}`, session?.user?.id || 'No user');
-         const user = session?.user ?? null;
-         setCurrentUser(user);
+      (event, session) => {
+        const user = session?.user ?? null;
+        setCurrentUser(user);
+        setLoading(false); // Stop loading after state change is processed
 
-         switch (event) {
-            case 'SIGNED_IN':
-               setFeedback(null);
-               setFormData(prev => ({ ...prev, password: '' })); // Clear password only
-               setIsSigningUp(false);
-               if (user) {
-                  console.log('Effect Listener SIGNED_IN: Fetching profile...');
-                  const profile = await fetchProfile(user.id, () => isMounted); // Fetch profile
-                  if (isMounted) setProfileData(profile);
-               } else {
-                  if (isMounted) setProfileData(null);
-               }
-               if (isMounted && authActionLoading) setAuthActionLoading(false); // Ensure reset if stuck
-               break;
-            case 'SIGNED_OUT':
-               if (isMounted) {
-                   console.log('Effect Listener SIGNED_OUT: Resetting state.');
-                   setProfileData(null);
-                   resetAuthState(); // Resets form, activeSection, feedback, isSigningUp, authActionLoading
-               }
-               break;
-            // Add USER_UPDATED if needed later
-         }
-         if (isMounted && initialLoading) setInitialLoading(false); // Backup reset
+        if (event === 'SIGNED_OUT' || !user) {
+          resetAuthState(); // Reset state completely on sign out
+        }
+        if (event === 'SIGNED_IN') {
+            setFeedback(null);
+            // Clear form data on successful sign-in (handled by resetAuthState called by listener?)
+            // Let's explicitly clear here too for safety, in case resetAuthState wasn't called
+             setFormData({ email: '', password: '', full_name: '', phone: '', date_of_birth: '', aadhar_number: '' });
+             setIsSigningUp(false); // Ensure we are in login mode view after sign in
+        }
       }
     );
 
-    // Cleanup
     return () => {
-      console.log("Effect Cleanup: Unmounting.");
-      isMounted = false;
       authListener?.subscription.unsubscribe();
     };
-  }, [fetchProfile, resetAuthState]); // Use stable helpers
+  }, []);
 
+  // Helper to reset state (now resets formData)
+  const resetAuthState = (clearFeedback = true) => {
+      setActiveSection('');
+      // Reset the comprehensive formData state
+      setFormData({ email: '', password: '', full_name: '', phone: '', date_of_birth: '', aadhar_number: '' });
+      if (clearFeedback) setFeedback(null);
+      setIsSigningUp(false); // Default to login mode
+  }
 
-  // --- Body Scroll Lock (Keep as is) ---
+  // --- Body Scroll Lock ---
   useEffect(() => {
-    const originalOverflow = document.body.style.overflow;
     if (isOpen) {
       document.body.style.overflow = 'hidden';
     } else {
-      document.body.style.overflow = originalOverflow;
+      document.body.style.overflow = 'unset';
     }
     return () => {
-      document.body.style.overflow = originalOverflow;
+      document.body.style.overflow = 'unset';
     };
   }, [isOpen]);
 
-  // --- Input Change Handler (Adapted for formData) ---
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
-  };
-
-  // --- Map Supabase Errors (Use more detailed one) ---
-  const getFriendlyErrorMessage = (error: AuthError | Error | any): { type: 'error' | 'info', text: string } => {
-      let message = "An unexpected error occurred. Please try again.";
-      let type: 'error' | 'info' = 'error';
-      if (!error) return { type, text: message };
-      const errorMessage = error.message || String(error) || '';
-      console.error('Supabase Auth/DB Error:', errorMessage, error);
-
-      if (errorMessage.includes('Invalid login credentials')) {
-            message = "Incorrect email or password."; type = 'error';
-            setTimeout(() => passwordInputRef.current?.focus(), 100);
-      } else if (errorMessage.includes('User already registered') || errorMessage.includes('already exists')) {
-            message = "This email is already registered. Please log in."; type = 'info';
-            setIsSigningUp(false); // Switch to login
-            setFormData(prev => ({ ...prev, password: '', full_name: '', phone: '', date_of_birth: '', aadhar_number: ''}));
-            setTimeout(() => emailInputRef.current?.focus(), 100);
-      } else if (errorMessage.includes('Password should be at least 6 characters')) {
-            message = 'Password must be at least 6 characters long.'; type = 'error';
-            setTimeout(() => passwordInputRef.current?.focus(), 100);
-      } else if (errorMessage.includes('Unable to validate email address: invalid format')) {
-            message = 'Please enter a valid email address.'; type = 'error';
-            setTimeout(() => emailInputRef.current?.focus(), 100);
-      } else if (errorMessage.includes('Email rate limit exceeded') || errorMessage.includes('too many requests')) {
-            message = 'Too many attempts. Please try again later.'; type = 'error';
-      } else if (errorMessage.includes('check constraint') && errorMessage.includes('phone')) {
-            message = 'Invalid phone number format provided.'; type = 'error';
-      } else if (errorMessage.includes('profiles_pkey') || (errorMessage.includes('duplicate key') && errorMessage.includes('profiles'))) {
-            message = 'Profile data could not be saved (user might already have one).'; type = 'error';
-      } else if (errorMessage.includes('violates not-null constraint') && errorMessage.includes('full_name')) {
-            message = 'Full Name is required.'; type = 'error';
-            setTimeout(() => nameInputRef.current?.focus(), 100);
-      } else if (errorMessage.includes('violates not-null constraint') && errorMessage.includes('aadhar_number')) {
-            message = 'Aadhar Number is required.'; type = 'error';
-            setTimeout(() => aadharInputRef.current?.focus(), 100);
-      } else if (errorMessage.includes('12-digit Aadhar')) {
-            message = errorMessage; type = 'error';
-            setTimeout(() => aadharInputRef.current?.focus(), 100);
-      } else if (errorMessage) {
-          message = errorMessage; type = 'error';
-      }
-      return { type, text: message };
-  };
+   // --- Input Change Handler (Updates formData) ---
+   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const { name, value } = e.target;
+        setFormData(prev => ({ ...prev, [name]: value }));
+   };
 
 
-  // --- Authentication Handler (Enhanced for Signup/Profile) ---
-  // ***** THE CORRECTION IS HERE *****
+  // --- Map Supabase Errors ---
+  // (This function remains mostly the same as it already handles the switch to signup)
+   const getFriendlyErrorMessage = (error: AuthError | Error | any): { type: 'error' | 'info', text: string } => {
+       let message = "An unexpected error occurred. Please try again.";
+       let type: 'error' | 'info' = 'error';
+       if (!error) return { type, text: message };
+       const errorMessage = error.message || '';
+       console.error('Supabase Auth/DB Error:', errorMessage); // Log raw error
+
+       if (errorMessage.includes('Invalid login credentials')) {
+            if (!isSigningUp) { // Only switch if currently trying to log in
+                message = "Account not found. Please complete the form below to sign up.";
+                type = 'info';
+                setIsSigningUp(true); // <<< Switch to signup mode
+                 // Keep email, clear password, focus name field
+                setFormData(prev => ({ ...prev, password: '' }));
+                setTimeout(() => nameInputRef.current?.focus(), 100);
+            } else {
+                 // This case might not be reached if signup uses different logic, but keep for safety
+                 message = 'Invalid details provided during signup.';
+                 type = 'error';
+            }
+       } else if (errorMessage.includes('User already registered') || errorMessage.includes('already exists')) {
+            message = "This email is already registered. Please log in.";
+            type = 'info';
+            setIsSigningUp(false); // Switch back to login mode
+            setFormData(prev => ({ ...prev, password: '', full_name: '', phone: '', date_of_birth: '', aadhar_number: ''})); // Clear signup fields
+            setTimeout(() => emailInputRef.current?.focus(), 100); // Focus email for login
+       } else if (errorMessage.includes('Password should be at least 6 characters')) {
+            message = 'Password must be at least 6 characters long.';
+            type = 'error';
+       } else if (errorMessage.includes('Unable to validate email address: invalid format')) {
+            message = 'Please enter a valid email address.';
+            type = 'error';
+       } else if (errorMessage.includes('Email rate limit exceeded') || errorMessage.includes('too many requests')) {
+            message = 'Too many attempts. Please try again later.';
+            type = 'error';
+       } else if (errorMessage.includes('check constraint') && errorMessage.includes('phone')) {
+             message = 'Invalid phone number format provided.'; // Example for profile errors
+             type = 'error';
+       } else if (errorMessage.includes('profiles_pkey') || errorMessage.includes('duplicate key')) {
+             // This might happen if the profile insert runs unexpectedly twice
+             message = 'Profile data already exists or could not be saved.';
+             type = 'error';
+       }
+       // Add more specific profile error mappings if needed
+       else {
+            message = errorMessage; // Default to Supabase message
+            type = 'error'; // Assume other errors are actual errors
+       }
+       return { type, text: message };
+   };
+
+  // --- Authentication Handler (Supabase) ---
   const handleAuth = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setFeedback(null);
-    setAuthActionLoading(true); // Use specific loading state
-    const currentFormData = { ...formData }; // Snapshot
+    setLoading(true);
+    const currentFormData = { ...formData }; // Capture current state for use after async ops
 
     try {
       if (isSigningUp) {
         // --- Sign Up ---
-        // Validation
-        if (!currentFormData.full_name?.trim()) throw new Error("Full Name is required.");
-        if (!currentFormData.aadhar_number?.trim()) throw new Error("Aadhar number is required.");
-        const aadharRegex = /^\d{12}$/;
-        if (!aadharRegex.test(currentFormData.aadhar_number)) throw new Error("Please enter a valid 12-digit Aadhar number.");
+        // Basic Client-Side Validation (Example)
+        if (!currentFormData.full_name) throw new Error("Full name is required for signup.");
         if (currentFormData.password.length < 6) throw new Error("Password must be at least 6 characters.");
+        // Add more validations as needed (phone, dob, aadhar format) before hitting Supabase
 
-        // 1. Auth Signup
         const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
-          email: currentFormData.email.trim(),
+          email: currentFormData.email,
           password: currentFormData.password,
         });
-        if (signUpError) throw signUpError;
-        if (!signUpData.user) throw new Error("Signup successful but user data missing.");
-        console.log('(handleAuth) Auth signup successful:', signUpData.user.email);
 
-        // 2. Profile Insert
-        let profileInsertSuccess = false;
-        try {
-            console.log('(handleAuth) Attempting profile insert...');
-            // *** RLS INSERT POLICY NEEDED ***
-            const { error: profileError } = await supabase.from('profiles').insert({
-                id: signUpData.user.id, email: signUpData.user.email,
-                full_name: currentFormData.full_name.trim(),
-                phone: currentFormData.phone?.trim() || null,
-                date_of_birth: currentFormData.date_of_birth || null,
-                aadhar_number: currentFormData.aadhar_number.trim(),
-            });
-            if (profileError) throw profileError;
-            console.log('(handleAuth) Profile insert successful.');
-            profileInsertSuccess = true;
-        } catch (profileInsertError: any) {
-            console.error('(handleAuth) Profile insert ERROR:', profileInsertError);
-            const profileFeedback = getFriendlyErrorMessage(profileInsertError);
-            setFeedback({ type: 'info', text: `Account created, profile save failed: ${profileFeedback.text}. Check email.` });
+        console.log('Supabase signUp response:', signUpData);
+        if (signUpError) throw signUpError; // Throw auth errors to be handled by catch block
+
+        // Check if user object exists (it should if no error)
+        if (!signUpData.user) {
+            throw new Error("Signup seemed successful but user data is missing.");
         }
 
-        // 3. Feedback based on session
-        if (!signUpData.session) { // Verification needed
-            if (profileInsertSuccess && (!feedback || feedback.type !== 'info')) {
-                 setFeedback({ type: 'success', text: 'Account created! Check email for confirmation.' });
+        console.log('Auth signup successful for:', signUpData.user.email);
+
+        // --- Insert Profile Data after successful signup ---
+        try {
+            console.log('Attempting to insert profile for user:', signUpData.user.id);
+            // *** WARNING: Storing Aadhar number plaintext here. Implement encryption! ***
+            const { error: profileError } = await supabase
+                .from('profiles') // <<<--- YOUR SUPABASE TABLE NAME HERE
+                .insert({
+                    id: signUpData.user.id, // Link to the auth user
+                    email: signUpData.user.email, // Optional: store email in profile too
+                    full_name: currentFormData.full_name,
+                    phone: currentFormData.phone || null, // Store null if empty string
+                    date_of_birth: currentFormData.date_of_birth || null, // Store null if empty
+                    aadhar_number: currentFormData.aadhar_number || null, // *** ENCRYPT THIS VALUE *** Store null if empty
+                    created_at: new Date().toISOString(), // Add created_at timestamp
+                    updated_at: new Date().toISOString(), // Add updated_at timestamp
+                });
+
+            if (profileError) {
+                // Log the profile error but let the user know signup part worked
+                console.error('Error creating Supabase profile after signup:', profileError.message);
+                // Decide how to handle this: inform user profile failed?
+                 // For now, proceed but maybe show a non-blocking warning later?
+                 setFeedback({ type: 'info', text: `Account created for ${signUpData.user.email}, but profile details couldn't be saved. You can update them later.`});
+            } else {
+                console.log('Supabase profile created successfully.');
             }
-            setIsSigningUp(false); // Switch view
-            // Clear sensitive/profile fields after signup request
-            setFormData(prev => ({ ...prev, password: '', full_name: '', phone: '', date_of_birth: '', aadhar_number: '' }));
-            // Loading state handled in finally
-        } else { // Auto-logged in
-             if (profileInsertSuccess && (!feedback || feedback.type !== 'info')) {
-                 setFeedback({ type: 'success', text: 'Account created successfully!' });
-             }
-             // Listener will handle profile fetch/UI updates. Loading handled in finally.
+        } catch (profileInsertError: any) {
+            // Catch unexpected errors during profile insert
+            console.error('Exception during profile creation:', profileInsertError.message);
+             setFeedback({ type: 'info', text: `Account created for ${signUpData.user.email}, but profile details couldn't be saved due to an error.`});
+        }
+
+
+        // Check if email verification is needed (session is null)
+        if (!signUpData.session) {
+            // Don't override profile error feedback if it happened
+            if (!feedback) { // Only set this if no profile error occurred
+                 setFeedback({ type: 'success', text: 'Account created! Check your email (including spam) for a confirmation link to log in.' });
+            }
+             setIsSigningUp(false); // Switch back to login view
+             // Clear sensitive fields, keep email
+             setFormData(prev => ({ ...prev, password: '', full_name: '', phone: '', date_of_birth: '', aadhar_number: '' }));
+             setLoading(false); // Stop loading here as auth listener won't fire yet
+        } else {
+             // User is signed up AND logged in (auto-confirmation or verification disabled)
+             // Auth listener `onAuthStateChange` (SIGNED_IN) will handle UI update and state reset.
+             // Feedback might be briefly shown then cleared by listener.
+              if (!feedback) { // Only set this if no profile error occurred
+                  setFeedback({ type: 'success', text: 'Account created successfully!' });
+              }
+             // setLoading(false) will be handled by the auth listener
         }
 
       } else {
         // --- Log In ---
         const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-          email: currentFormData.email.trim(),
+          email: currentFormData.email,
           password: currentFormData.password,
         });
-        if (signInError) throw signInError;
-        console.log('(handleAuth) Login successful request for:', signInData.user?.email);
-        // Listener handles UI updates. Loading handled in finally.
+
+        console.log('Supabase signIn response:', signInData);
+        if (signInError) throw signInError; // Let catch block handle login errors
+
+        console.log('Logged in:', signInData.user?.email);
+        // setLoading(false) and state reset handled by auth listener for SIGNED_IN
       }
 
     } catch (error: any) {
-      console.error("(handleAuth) Error caught:", error);
-      const feedbackMessage = getFriendlyErrorMessage(error);
+      // Catch errors from signInWithPassword, signUp, or manually thrown errors
+      const feedbackMessage = getFriendlyErrorMessage(error); // This might switch mode to signup
       setFeedback(feedbackMessage);
-      // Focus logic handled within getFriendlyErrorMessage using setTimeout
-
-    } finally {
-      console.log("(handleAuth) Finally block: Setting authActionLoading false.");
-      setAuthActionLoading(false); // Reset button loading state
+      setLoading(false); // Stop loading on error
+      // Focus email field only if it was a login error and we didn't switch to signup
+      if (!isSigningUp && emailInputRef.current && feedbackMessage.type === 'error') {
+          emailInputRef.current.focus();
+          emailInputRef.current.select();
+      }
+       // If it was a signup error related to name (or another signup field)
+      if (isSigningUp && nameInputRef.current && error.message?.includes('name')) {
+           nameInputRef.current.focus();
+      }
     }
+    // No finally block needed as loading is handled in success/error/listener paths
   };
 
-  // --- Logout Handler (Adapted for new loading state) ---
+  // --- Logout Handler (Supabase) ---
   const handleLogout = async () => {
+    setLoading(true);
     setFeedback(null);
-    setAuthActionLoading(true); // Use specific loading state
-    try {
-        const { error } = await supabase.auth.signOut();
-        if (error) {
-            console.error('(handleLogout) Logout Error:', error.message);
-            setFeedback({ type: 'error', text: `Logout failed: ${error.message}` });
-        } else {
-            console.log('(handleLogout) Logout successful request.');
-            // Listener handles state reset
-        }
-    } catch(e: any) {
-         console.error("(handleLogout) Exception:", e.message);
-         setFeedback({ type: 'error', text: "Error during logout." });
-    } finally {
-         console.log("(handleLogout) Finally block: Setting authActionLoading false.");
-         setAuthActionLoading(false); // Reset button loading state
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      console.error('Logout Error:', error.message);
+      setFeedback({ type: 'error', text: "Failed to log out. Please try again." });
+      setLoading(false);
     }
+    // setLoading(false) and state reset handled by auth listener for SIGNED_OUT
   };
 
-  // --- Toggle Signup/Login View (Adapted for formData) ---
+  // --- Toggle Signup/Login View ---
   const toggleAuthMode = () => {
     const enteringSignupMode = !isSigningUp;
     setIsSigningUp(enteringSignupMode);
-    // Reset form but keep email
+    // Reset form data but keep email if user already typed it
     setFormData(prev => ({
-        email: prev.email, password: '', full_name: '', phone: '', date_of_birth: '', aadhar_number: ''
+        email: prev.email, // Keep email
+        password: '', full_name: '', phone: '', date_of_birth: '', aadhar_number: '' // Clear others
     }));
-    setFeedback(null);
-    // Focus appropriate field
+    setFeedback(null); // Clear feedback on mode toggle
+    // Focus appropriate field after mode switch
     setTimeout(() => {
-        if (enteringSignupMode) nameInputRef.current?.focus();
-        else emailInputRef.current?.focus();
+        if (enteringSignupMode && nameInputRef.current) {
+            nameInputRef.current.focus();
+        } else if (!enteringSignupMode && emailInputRef.current) {
+            emailInputRef.current.focus();
+        }
     }, 100);
   }
 
-  // --- Reusable Input Field Classes (Copied) ---
+  // --- Reusable Input Field Classes ---
   const inputClasses = (hasError: boolean = false) =>
-    `w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-colors text-gray-800 placeholder-gray-400 ${
+    `w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-colors ${
       hasError ? 'border-red-500 ring-red-500' : 'border-gray-300'
     } disabled:bg-gray-100 disabled:cursor-not-allowed`;
 
-  // --- Combined Loading State for Disabling Navigation ---
-  const isBusy = authActionLoading || profileLoading;
-
-  // --- Render Logic (JSX - Merged) ---
-  // (Keep the JSX identical to the previous version, as the typo was in the JS/TS part)
+  // --- Render Logic (JSX) ---
   return (
     <>
-      {/* --- Overlay (Use granular loading states) --- */}
+      {/* --- Overlay --- */}
       <div
-        onClick={initialLoading || authActionLoading ? undefined : onClose}
+        onClick={loading ? undefined : onClose}
         className={`fixed inset-0 bg-black bg-opacity-60 backdrop-blur-sm transition-opacity duration-300 z-40 ${isOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
         aria-hidden={!isOpen}
       />
@@ -413,16 +331,16 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
         className={`fixed top-0 right-0 h-full w-full max-w-sm bg-white shadow-xl transform transition-transform duration-300 ease-in-out z-50 flex flex-col ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}
         role="dialog" aria-modal="true" aria-labelledby="sidebar-title"
       >
-        {/* --- Header (Use granular loading state) --- */}
+        {/* --- Header --- */}
         <div className="flex items-center justify-between p-4 border-b border-gray-200 flex-shrink-0">
           <h2 id="sidebar-title" className="text-xl font-semibold text-gray-800">
-             {initialLoading ? 'Loading...' : (currentUser ? 'My Account' : (isSigningUp ? 'Create Account' : 'Log In'))}
+            {loading && !currentUser ? 'Loading...' : (currentUser ? 'My Account' : (isSigningUp ? 'Create Account' : 'Log In'))}
           </h2>
           <button
             onClick={onClose}
             className="p-1 rounded-full text-gray-500 hover:text-gray-800 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-1 transition-colors"
             aria-label="Close sidebar"
-            disabled={initialLoading || authActionLoading} // Disable on initial or auth action
+            disabled={loading && !currentUser} // Prevent closing during critical loading
           >
             <X size={24} />
           </button>
@@ -431,157 +349,157 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
         {/* --- Main Content Area (Scrollable) --- */}
         <div className="flex-grow p-6 overflow-y-auto">
 
-          {/* --- Feedback Display Area (Keep as is) --- */}
+          {/* --- Feedback Display Area --- */}
           {feedback && (
              <div className={`mb-4 p-3 border rounded-md text-sm flex items-start ${
                  feedback.type === 'error' ? 'bg-red-50 border-red-300 text-red-800' :
                  feedback.type === 'success' ? 'bg-green-50 border-green-300 text-green-800' :
                  'bg-blue-50 border-blue-300 text-blue-800'
              }`}>
-                 <AlertCircle size={18} className="mr-2 flex-shrink-0 mt-0.5" />
+                 <AlertCircle size={18} className="mr-2 flex-shrink-0 mt-0.5" /> {/* Using AlertCircle for all for simplicity */}
                  <span>{feedback.text}</span>
              </div>
            )}
 
-          {/* --- Initial Loading Indicator (Use initialLoading state) --- */}
-          {initialLoading && (
+          {/* --- Loading Indicator (Initial Load/Auth) --- */}
+          {/* Show loader if loading AND not logged in AND not showing feedback */}
+          {loading && !currentUser && !feedback && (
             <div className="flex justify-center items-center py-10">
                  <Loader2 size={32} className="animate-spin text-orange-600" />
             </div>
           )}
 
-          {/* --- Logged In View (Use profileData, profileLoading) --- */}
-          {!initialLoading && currentUser ? (
+          {/* --- Logged In View --- */}
+          {!loading && currentUser ? (
             <div className="space-y-6">
-             {/* Display profile name or email, show profile loader */}
-              <div className="flex items-center justify-between">
-                 <p className="text-gray-600 truncate">
-                     Welcome, <span className='font-medium text-gray-800'>{profileData?.full_name || currentUser.email || 'User'}</span>!
-                 </p>
-                 {profileLoading && <Loader2 size={16} className="animate-spin text-orange-500 ml-2" />}
-              </div>
+              {/* Welcome Message - Consider fetching profile name here later */}
+              <p className="text-gray-600 truncate">Welcome, <span className='font-medium'>{currentUser.email}</span>!</p>
 
-              {/* Dashboard Navigation (Disable based on isBusy) */}
+              {/* Dashboard Navigation */}
               <nav className="space-y-2">
-                 <button className={`flex items-center w-full px-4 py-3 rounded-lg text-left text-gray-700 hover:bg-orange-50 hover:text-orange-600 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-1 transition-colors disabled:opacity-50 ${activeSection === 'tracking' ? 'bg-orange-100 text-orange-700 font-medium' : ''}`} onClick={() => setActiveSection('tracking')} disabled={isBusy}> <Truck size={18} className="mr-3 flex-shrink-0" /> Order Tracking </button>
-                 <button className={`flex items-center w-full px-4 py-3 rounded-lg text-left text-gray-700 hover:bg-orange-50 hover:text-orange-600 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-1 transition-colors disabled:opacity-50 ${activeSection === 'delivery' ? 'bg-orange-100 text-orange-700 font-medium' : ''}`} onClick={() => setActiveSection('delivery')} disabled={isBusy}> <MapPin size={18} className="mr-3 flex-shrink-0" /> Delivery Details </button>
-                 <button className={`flex items-center w-full px-4 py-3 rounded-lg text-left text-gray-700 hover:bg-orange-50 hover:text-orange-600 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-1 transition-colors disabled:opacity-50 ${activeSection === 'orders' ? 'bg-orange-100 text-orange-700 font-medium' : ''}`} onClick={() => setActiveSection('orders')} disabled={isBusy}> <ClipboardList size={18} className="mr-3 flex-shrink-0" /> My Orders </button>
+                 <button className={`flex items-center w-full px-4 py-3 rounded-lg text-left text-gray-700 hover:bg-orange-50 hover:text-orange-600 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-1 transition-colors ${activeSection === 'tracking' ? 'bg-orange-100 text-orange-700 font-medium' : ''}`} onClick={() => setActiveSection('tracking')}> <Truck size={18} className="mr-3 flex-shrink-0" /> Order Tracking </button>
+                 <button className={`flex items-center w-full px-4 py-3 rounded-lg text-left text-gray-700 hover:bg-orange-50 hover:text-orange-600 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-1 transition-colors ${activeSection === 'delivery' ? 'bg-orange-100 text-orange-700 font-medium' : ''}`} onClick={() => setActiveSection('delivery')}> <MapPin size={18} className="mr-3 flex-shrink-0" /> Delivery Details </button>
+                 <button className={`flex items-center w-full px-4 py-3 rounded-lg text-left text-gray-700 hover:bg-orange-50 hover:text-orange-600 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-1 transition-colors ${activeSection === 'orders' ? 'bg-orange-100 text-orange-700 font-medium' : ''}`} onClick={() => setActiveSection('orders')}> <ClipboardList size={18} className="mr-3 flex-shrink-0" /> My Orders </button>
               </nav>
 
-              {/* Dashboard Content Display (Keep as is, add loading check) */}
+              {/* Dashboard Content Display */}
               <div className="mt-6 p-4 bg-gray-50 rounded-lg min-h-[100px]">
                   {activeSection === 'tracking' && (<div><h3 className="text-lg font-semibold mb-2 text-gray-800">Order Tracking</h3><p className="text-sm text-gray-600">Tracking details here.</p></div>)}
                   {activeSection === 'delivery' && (<div><h3 className="text-lg font-semibold mb-2 text-gray-800">Delivery Details</h3><p className="text-sm text-gray-600">Manage addresses here.</p></div>)}
                   {activeSection === 'orders' && (<div><h3 className="text-lg font-semibold mb-2 text-gray-800">My Orders</h3><p className="text-sm text-gray-600">Order history here.</p></div>)}
-                  {!activeSection && !profileLoading && (<p className="text-sm text-gray-500 text-center pt-4">Select an option.</p>)}
-                  {profileLoading && activeSection && (<div className="flex justify-center items-center h-[80px]"><Loader2 size={24} className="animate-spin text-orange-500"/></div>)}
+                  {!activeSection && (<p className="text-sm text-gray-500 text-center pt-4">Select an option.</p>)}
               </div>
 
-              {/* Logout Button (Disable based on authActionLoading) */}
-               <button
-                  onClick={handleLogout}
-                  disabled={authActionLoading}
-                  className="flex items-center justify-center w-full px-4 py-2 mt-6 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-1 transition-colors disabled:opacity-50"
-                >
-                  {authActionLoading ? <Loader2 size={18} className="mr-2 animate-spin" /> : <LogOut size={18} className="mr-2" />}
-                  {authActionLoading ? 'Logging Out...' : 'Logout'}
-                </button>
+              {/* Logout Button */}
+              <button onClick={handleLogout} disabled={loading} className="flex items-center justify-center w-full px-4 py-2 mt-6 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-1 transition-colors disabled:opacity-50">
+                 {/* Show loader specifically for logout action */}
+                  {loading && !currentUser ? <Loader2 size={18} className="mr-2 animate-spin" /> : <LogOut size={18} className="mr-2" />}
+                  {loading && !currentUser ? 'Processing...' : 'Logout'}
+              </button>
             </div>
           ) : (
-            // --- Logged Out View (Login/Signup Form - Use formData) ---
-             !initialLoading && !currentUser && (
+            // --- Logged Out View (Login OR Signup Form) ---
+             !loading && !currentUser && (
                <form onSubmit={handleAuth} className="space-y-4">
 
-                {/* --- Signup Fields (Copied) --- */}
+                {/* --- Fields Visible ONLY in Signup Mode --- */}
                 {isSigningUp && (
                     <>
                      <div>
-                        <label htmlFor="full_name" className="block text-sm font-medium text-gray-700 mb-1">Full Name <span className="text-red-600">*</span></label>
-                        <input ref={nameInputRef} id="full_name" name="full_name" type="text" value={formData.full_name ?? ''} onChange={handleInputChange} placeholder="Your full name" className={inputClasses(feedback?.text.includes("Full Name"))} required disabled={authActionLoading} />
+                        <label htmlFor="full_name" className="block text-sm font-medium text-gray-700 mb-1">Full Name</label>
+                        <input ref={nameInputRef} id="full_name" name="full_name" type="text" value={formData.full_name} onChange={handleInputChange} placeholder="Your full name" className={inputClasses()} required disabled={loading} />
                     </div>
-                    {/* Phone */}
                      <div>
-                        <label htmlFor="phone" className="block text-sm font-medium text-gray-700 mb-1">Phone <span className="text-xs text-gray-500">(Opt)</span></label>
-                        <input id="phone" name="phone" type="tel" value={formData.phone ?? ''} onChange={handleInputChange} placeholder="e.g., 9876543210" className={inputClasses()} disabled={authActionLoading} />
+                        <label htmlFor="phone" className="block text-sm font-medium text-gray-700 mb-1">Phone Number <span className="text-xs text-gray-500">(Optional)</span></label>
+                        <input id="phone" name="phone" type="tel" value={formData.phone} onChange={handleInputChange} placeholder="e.g., 9876543210" className={inputClasses()} disabled={loading} />
                     </div>
-                     {/* DOB */}
                      <div>
-                        <label htmlFor="date_of_birth" className="block text-sm font-medium text-gray-700 mb-1">DOB <span className="text-xs text-gray-500">(Opt)</span></label>
-                        <input id="date_of_birth" name="date_of_birth" type="date" value={formData.date_of_birth ?? ''} onChange={handleInputChange} max={new Date().toISOString().split("T")[0]} className={inputClasses()} disabled={authActionLoading} />
+                        <label htmlFor="date_of_birth" className="block text-sm font-medium text-gray-700 mb-1">Date of Birth <span className="text-xs text-gray-500">(Optional)</span></label>
+                        <input id="date_of_birth" name="date_of_birth" type="date" value={formData.date_of_birth} onChange={handleInputChange} max={new Date().toISOString().split("T")[0]} // Prevent future dates
+                           className={inputClasses()} disabled={loading} />
                     </div>
-                    {/* Aadhar */}
                     <div>
-                        <label htmlFor="aadhar_number" className="block text-sm font-medium text-gray-700 mb-1">Aadhar <span className="text-red-600">*</span></label>
-                        <input ref={aadharInputRef} id="aadhar_number" name="aadhar_number" type="text" inputMode="numeric" pattern="\d{12}" title="12 digits" value={formData.aadhar_number ?? ''} onChange={handleInputChange} placeholder="1234 5678 9012" className={inputClasses(feedback?.text.includes("Aadhar"))} required disabled={authActionLoading} />
-                         <p className="text-xs text-gray-500 mt-1">12-digits. <span className='font-semibold'>Secure.</span></p>
+                        <label htmlFor="aadhar_number" className="block text-sm font-medium text-gray-700 mb-1">Aadhar Number </label>
+                        <input id="aadhar_number" name="aadhar_number" type="text" inputMode="numeric" pattern="\d{12}" title="Enter 12-digit Aadhar number" value={formData.aadhar_number} onChange={handleInputChange} placeholder="1234 5678 9012" className={inputClasses()} disabled={loading} />
+                         <p className="text-xs text-gray-500 mt-1">Enter 12-digit number. <span className='font-semibold'>Handled securely.</span></p> {/* *** Add note about security *** */}
                     </div>
-                    <hr className="my-2 border-gray-200"/>
+                    <hr className="my-2 border-gray-200"/> {/* Separator */}
                     </>
                 )}
 
-                 {/* --- Email Input (Use formData) --- */}
+                 {/* --- Email Input (Always Visible) --- */}
                  <div>
-                   <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">Email <span className="text-red-600">*</span></label>
+                   <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">Email</label>
                    <input
                       ref={emailInputRef}
-                      id="email" name="email" type="email"
-                      value={formData.email} // Use formData
-                      onChange={handleInputChange} // Use combined handler
+                      id="email"
+                      name="email" // Add name attribute
+                      type="email"
+                      value={formData.email}
+                      onChange={handleInputChange} // Use unified handler
                       placeholder="you@example.com"
-                      className={inputClasses(feedback?.type === 'error' && (feedback.text.includes('email') || feedback.text.includes('credentials')))}
+                      className={inputClasses(feedback?.type === 'error')}
                       required
-                      disabled={authActionLoading} // Use specific loading
+                      disabled={loading}
                     />
                  </div>
-                 {/* --- Password Input (Use formData) --- */}
+
+                 {/* --- Password Input (Always Visible) --- */}
                  <div>
-                   <label htmlFor="password"className="block text-sm font-medium text-gray-700 mb-1">Password <span className="text-red-600">*</span></label>
+                   <label htmlFor="password"className="block text-sm font-medium text-gray-700 mb-1">Password</label>
                    <input
-                      ref={passwordInputRef} // Add ref
-                      id="password" name="password" type="password"
-                      value={formData.password} // Use formData
-                      onChange={handleInputChange} // Use combined handler
-                      placeholder={isSigningUp ? "Create (min. 6 chars)" : "••••••••"}
-                      className={inputClasses(feedback?.type === 'error' && (feedback.text.includes('Password') || feedback.text.includes('credentials')))}
+                      id="password"
+                      name="password" // Add name attribute
+                      type="password"
+                      value={formData.password}
+                      onChange={handleInputChange} // Use unified handler
+                      placeholder={isSigningUp ? "Create a password (min. 6 chars)" : "••••••••"}
+                      className={inputClasses(feedback?.type === 'error')}
                       required
-                      minLength={isSigningUp ? 6 : undefined}
-                      disabled={authActionLoading} // Use specific loading
+                      minLength={isSigningUp ? 6 : undefined} // Min length only for signup
+                      disabled={loading}
                     />
-                    {/* Forgot password button (keep as is) */}
+                    {/* Forgot Password Link (Only in Login Mode) */}
                     {!isSigningUp && (
                         <div className="text-right mt-1">
-                          <button type="button" className="text-sm text-orange-600 hover:underline focus:outline-none" onClick={() => setFeedback({type: 'info', text:'Password recovery coming soon!'})} disabled={authActionLoading}>Forgot password?</button>
+                          <button type="button" className="text-sm text-orange-600 hover:underline focus:outline-none"
+                              onClick={() => setFeedback({type: 'info', text:'Forgot password functionality not implemented yet.'})}>
+                            Forgot password?
+                          </button>
                         </div>
                       )}
                  </div>
-                 {/* --- Submit Button (Use authActionLoading, add icons) --- */}
+
+                 {/* --- Submit Button (Text changes based on mode) --- */}
                  <button
                    type="submit"
-                   disabled={authActionLoading} // Use specific loading
+                   disabled={loading}
                    className="w-full bg-orange-600 text-white py-2.5 px-4 rounded-lg font-semibold hover:bg-orange-700 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2 transition-colors disabled:opacity-70 flex items-center justify-center"
                  >
-                   {authActionLoading && <Loader2 size={20} className="mr-2 animate-spin" />}
-                   {!authActionLoading && !isSigningUp && <LogOut size={18} className="mr-2 transform rotate-180" />}
-                   {!authActionLoading && isSigningUp && <UserPlus size={18} className="mr-2" />}
-                   {authActionLoading ? 'Processing...' : (isSigningUp ? 'Sign Up' : 'Log In')}
+                   {loading && <Loader2 size={20} className="mr-2 animate-spin" />}
+                   {/* Add UserPlus icon for signup */}
+                   {!loading && isSigningUp && <UserPlus size={18} className="mr-2" />}
+                   {loading ? 'Processing...' : (isSigningUp ? 'Sign Up' : 'Log In')}
                  </button>
                </form>
             )
           )}
         </div> {/* End Main Content Area */}
 
-        {/* --- Footer / Toggle Auth Mode (Disable based on authActionLoading) --- */}
-        {!initialLoading && !currentUser && (
-           <div className="p-4 border-t border-gray-200 text-center flex-shrink-0 bg-white">
+        {/* --- Footer / Toggle Auth Mode --- */}
+        {/* Show toggle only when logged out and not loading */}
+        {!loading && !currentUser && (
+           <div className="p-4 border-t border-gray-200 text-center flex-shrink-0">
             <button
               onClick={toggleAuthMode}
-              disabled={authActionLoading} // Use specific loading
+              disabled={loading} // Disable if any loading is happening
               className="text-sm text-orange-600 hover:underline focus:outline-none disabled:opacity-50"
             >
               {isSigningUp ? 'Already have an account? Log In' : "Don't have an account? Sign Up"}
             </button>
           </div>
         )}
+         <div className="flex-shrink-0 h-4"></div> {/* Bottom padding */}
       </div> {/* End Sidebar Panel */}
     </>
   );

@@ -171,7 +171,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
                setIsSigningUp(false);
                if (user) {
                   console.log('Effect Listener SIGNED_IN: Fetching profile...');
-                  const profile = await fetchProfile(user.id, () => isMounted);
+                  const profile = await fetchProfile(user.id, () => isMounted); // Fetch profile
                   if (isMounted) setProfileData(profile);
                } else {
                   if (isMounted) setProfileData(null);
@@ -264,6 +264,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
 
 
   // --- Authentication Handler (Enhanced for Signup/Profile) ---
+  // ***** THE CORRECTION IS HERE *****
   const handleAuth = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setFeedback(null);
@@ -397,6 +398,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
   const isBusy = authActionLoading || profileLoading;
 
   // --- Render Logic (JSX - Merged) ---
+  // (Keep the JSX identical to the previous version, as the typo was in the JS/TS part)
   return (
     <>
       {/* --- Overlay (Use granular loading states) --- */}
@@ -461,16 +463,16 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
 
               {/* Dashboard Navigation (Disable based on isBusy) */}
               <nav className="space-y-2">
-                 <button className={`...`} onClick={() => setActiveSection('tracking')} disabled={isBusy}> <Truck ... /> Order Tracking </button>
-                 <button className={`...`} onClick={() => setActiveSection('delivery')} disabled={isBusy}> <MapPin ... /> Delivery Details </button>
-                 <button className={`...`} onClick={() => setActiveSection('orders')} disabled={isBusy}> <ClipboardList ... /> My Orders </button>
+                 <button className={`flex items-center w-full px-4 py-3 rounded-lg text-left text-gray-700 hover:bg-orange-50 hover:text-orange-600 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-1 transition-colors disabled:opacity-50 ${activeSection === 'tracking' ? 'bg-orange-100 text-orange-700 font-medium' : ''}`} onClick={() => setActiveSection('tracking')} disabled={isBusy}> <Truck size={18} className="mr-3 flex-shrink-0" /> Order Tracking </button>
+                 <button className={`flex items-center w-full px-4 py-3 rounded-lg text-left text-gray-700 hover:bg-orange-50 hover:text-orange-600 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-1 transition-colors disabled:opacity-50 ${activeSection === 'delivery' ? 'bg-orange-100 text-orange-700 font-medium' : ''}`} onClick={() => setActiveSection('delivery')} disabled={isBusy}> <MapPin size={18} className="mr-3 flex-shrink-0" /> Delivery Details </button>
+                 <button className={`flex items-center w-full px-4 py-3 rounded-lg text-left text-gray-700 hover:bg-orange-50 hover:text-orange-600 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-1 transition-colors disabled:opacity-50 ${activeSection === 'orders' ? 'bg-orange-100 text-orange-700 font-medium' : ''}`} onClick={() => setActiveSection('orders')} disabled={isBusy}> <ClipboardList size={18} className="mr-3 flex-shrink-0" /> My Orders </button>
               </nav>
 
               {/* Dashboard Content Display (Keep as is, add loading check) */}
               <div className="mt-6 p-4 bg-gray-50 rounded-lg min-h-[100px]">
-                  {activeSection === 'tracking' && (<div>...</div>)}
-                  {activeSection === 'delivery' && (<div>...</div>)}
-                  {activeSection === 'orders' && (<div>...</div>)}
+                  {activeSection === 'tracking' && (<div><h3 className="text-lg font-semibold mb-2 text-gray-800">Order Tracking</h3><p className="text-sm text-gray-600">Tracking details here.</p></div>)}
+                  {activeSection === 'delivery' && (<div><h3 className="text-lg font-semibold mb-2 text-gray-800">Delivery Details</h3><p className="text-sm text-gray-600">Manage addresses here.</p></div>)}
+                  {activeSection === 'orders' && (<div><h3 className="text-lg font-semibold mb-2 text-gray-800">My Orders</h3><p className="text-sm text-gray-600">Order history here.</p></div>)}
                   {!activeSection && !profileLoading && (<p className="text-sm text-gray-500 text-center pt-4">Select an option.</p>)}
                   {profileLoading && activeSection && (<div className="flex justify-center items-center h-[80px]"><Loader2 size={24} className="animate-spin text-orange-500"/></div>)}
               </div>
@@ -548,7 +550,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
                     {/* Forgot password button (keep as is) */}
                     {!isSigningUp && (
                         <div className="text-right mt-1">
-                          <button type="button" className="..." onClick={() => setFeedback(...)} disabled={authActionLoading}>Forgot password?</button>
+                          <button type="button" className="text-sm text-orange-600 hover:underline focus:outline-none" onClick={() => setFeedback({type: 'info', text:'Password recovery coming soon!'})} disabled={authActionLoading}>Forgot password?</button>
                         </div>
                       )}
                  </div>

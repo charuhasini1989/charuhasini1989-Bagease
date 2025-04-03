@@ -303,7 +303,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
    };
 
   // --- Authentication Handler (Supabase) ---
-  const handleAuth = async (e: React.FormEvent<H TMLFormElement>) => {
+  const handleAuth = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setFeedback(null);
     setAuthActionLoading(true); // Start button loading

@@ -1,6 +1,6 @@
 // src/components/Sidebar.tsx
 import React, { useState, useEffect, useRef } from 'react';
-import { supabase } from '../supabaseClient'; // Adjust path as needed
+import { supabase } from '../supabase';
 import { AuthError, Session, User } from '@supabase/supabase-js';
 import { IoClose } from 'react-icons/io5'; // Example using react-icons for close button
 

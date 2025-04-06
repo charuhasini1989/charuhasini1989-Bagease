@@ -263,11 +263,15 @@ const Book = () => {
 
 
     // --- Handle Submit (Modified Error Message Handling) ---
-    console.log('>>> Attempting to insert booking with user ID:', currentUser?.id); // Add this line
+    // Inside handleSubmit, right before inserting the booking:
+console.log('>>> Verifying User ID for Booking Insert:', currentUser?.id); // Add this exact line
 
-    const { data: insertedBooking, error: bookingError } = await supabase
-        .from('bookings')
-        .insert(bookingPayload)
+// This is the line causing the error:
+const { data: insertedBooking, error: bookingError } = await supabase
+    .from('bookings')
+    .insert(bookingPayload) // 'bookingPayload' is 'ce' in your minified code
+    .select('id')
+    .single();
     const handleSubmit = useCallback(async (e: React.FormEvent) => {
         e.preventDefault();
         if (!isAuthenticated || !currentUser) {

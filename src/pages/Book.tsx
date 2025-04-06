@@ -263,6 +263,11 @@ const Book = () => {
 
 
     // --- Handle Submit (Modified Error Message Handling) ---
+    console.log('>>> Attempting to insert booking with user ID:', currentUser?.id); // Add this line
+
+    const { data: insertedBooking, error: bookingError } = await supabase
+        .from('bookings')
+        .insert(bookingPayload)
     const handleSubmit = useCallback(async (e: React.FormEvent) => {
         e.preventDefault();
         if (!isAuthenticated || !currentUser) {

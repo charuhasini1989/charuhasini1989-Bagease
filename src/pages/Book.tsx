@@ -1,9 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom'; // Remove Link import if no longer needed elsewhere
 import { supabase } from '../supabase';
-import { User } from '@supabase/supabase-js'; // Import User type
 
-// --- Reusable Components (Keep as they are) ---
+// --- Reusable Green Checkmark Component ---
 const GreenCheckmark = () => (
     <svg /* ... SVG code ... */
       className="w-20 h-20 sm:w-24 sm:h-24 text-green-500"
@@ -14,22 +13,28 @@ const GreenCheckmark = () => (
     </svg>
 );
 
+
+// --- Simple Prompt Component ---
+// *** MODIFIED PleaseLoginPrompt ***
 const PleaseLoginPrompt = () => {
+    // Function to dispatch the custom event
     const handleOpenSidebar = () => {
         const event = new CustomEvent('openLoginSidebar');
         window.dispatchEvent(event);
     };
+
     return (
-        <div className="flex justify-center items-center min-h-[calc(100vh-200px)]">
+        <div className="flex justify-center items-center min-h-[calc(100vh-200px)]"> {/* Adjust min-height as needed */}
             <div className="bg-white p-8 rounded-lg shadow-md text-center max-w-md mx-auto">
                 <h2 className="text-2xl font-bold text-gray-800 mb-4">Authentication Required</h2>
                 <p className="text-gray-600 mb-6">
                     You need to be logged in to access the booking page. Please log in or sign up to continue.
                 </p>
+                {/* Changed Link to button and added onClick */}
                 <button
-                    type="button"
-                    onClick={handleOpenSidebar}
-                    className="inline-block px-6 py-2 bg-[#ff8c00] text-white font-medium rounded-md hover:bg-[#e07b00] transition duration-150 ease-in-out cursor-pointer"
+                    type="button" // Good practice for buttons not submitting forms
+                    onClick={handleOpenSidebar} // Call the function to open sidebar
+                    className="inline-block px-6 py-2 bg-[#ff8c00] text-white font-medium rounded-md hover:bg-[#e07b00] transition duration-150 ease-in-out cursor-pointer" // Added cursor-pointer
                 >
                     Go to Login
                 </button>
@@ -38,8 +43,6 @@ const PleaseLoginPrompt = () => {
     );
 };
 
-// --- Helper Type for Order Status ---
-type OrderStatus = 'Pending' | 'Processing' | 'Shipped' | 'Out for Delivery' | 'Delivered' | 'Cancelled' | 'Failed';
 
 // --- Main Booking Component ---
 const Book = () => {
@@ -61,62 +64,68 @@ const Book = () => {
     const [isLoadingAuth, setIsLoadingAuth] = useState(true);
     const [isAuthenticated, setIsAuthenticated] = useState(false);
     const [isSubmitSuccess, setIsSubmitSuccess] = useState(false);
-    const [currentUser, setCurrentUser] = useState<User | null>(null); // Store user object
+    // const [fetchedTrainDetails, setFetchedTrainDetails] = useState(null);
 
     // --- Authentication Check ---
     useEffect(() => {
         let isMounted = true;
-        setIsLoadingAuth(true); // Start loading when effect runs
 
         const checkUserSession = async () => {
+            // Keep setIsLoadingAuth(true) at the start of the effect if needed
+            // setIsLoadingAuth(true); // Already set initially
+
             try {
                 const { data: { session }, error } = await supabase.auth.getSession();
-                if (!isMounted) return;
-                if (error) throw new Error(`Auth Session Error: ${error.message}`);
 
-                if (!session) {
+                if (!isMounted) return;
+
+                if (error) {
+                    console.error("Error checking Supabase session:", error.message);
+                    setIsAuthenticated(false);
+                } else if (!session) {
                     console.log("User not authenticated.");
                     setIsAuthenticated(false);
-                    setCurrentUser(null);
                 } else {
-                    console.log("User authenticated:", session.user.id);
+                    console.log("User authenticated.");
                     setIsAuthenticated(true);
-                    setCurrentUser(session.user); // Store user object
                     setBookingData(prev => ({
                         ...prev,
                         email: prev.email || session.user?.email || '',
                         name: prev.name || session.user?.user_metadata?.full_name || ''
                     }));
                 }
-            } catch (err: any) {
+            } catch (err) {
                  if (!isMounted) return;
-                 console.error("Error during auth check:", err);
+                 console.error("Unexpected error during auth check:", err);
                  setIsAuthenticated(false);
-                 setCurrentUser(null);
-                 // Optionally set a global error state here if needed
             } finally {
-                 if (isMounted) setIsLoadingAuth(false); // Finish loading
+                // Ensure loading state is turned off regardless of outcome
+                if (isMounted) {
+                   setIsLoadingAuth(false);
+                }
             }
         };
 
         checkUserSession();
 
         const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
-            // Check mount status AND ensure initial check isn't still running
+            // Only update if component is still mounted and auth check isn't actively running
             if (isMounted && !isLoadingAuth) {
-                 const currentlyAuth = !!session;
-                 if (currentlyAuth !== isAuthenticated) {
-                    console.log(`Auth state changed: User is now ${currentlyAuth ? 'authenticated' : 'not authenticated'}.`);
+                 const currentlyAuth = !!session; // Convert session presence to boolean
+                 if (currentlyAuth !== isAuthenticated) { // Only update state if it changes
+                    console.log(`Auth state changed: User is now ${currentlyAuth ? 'authenticated' : 'not authenticated'}. Updating UI.`);
                     setIsAuthenticated(currentlyAuth);
-                    setCurrentUser(session?.user ?? null);
                     if (currentlyAuth && session) {
+                        // Update user details if newly authenticated
                          setBookingData(prev => ({
                             ...prev,
                             email: prev.email || session.user?.email || '',
                             name: prev.name || session.user?.user_metadata?.full_name || ''
                         }));
+                    } else if (!currentlyAuth) {
+                        // Optionally clear sensitive form fields on logout?
+                        // setBookingData(prev => ({ ...prev, name: '', email: '' })); // Example
                     }
-                    // Optionally clear form fields on logout
                  }
             }
         });
@@ -125,12 +134,13 @@ const Book = () => {
             isMounted = false;
             authListener?.subscription.unsubscribe();
         };
-    // We only run this on mount. The listener handles subsequent changes.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
+        // Dependencies: Rerun effect if navigate changes (unlikely but good practice)
+        // Rerun listener logic check if isLoadingAuth or isAuthenticated changes
+    }, [navigate, isLoadingAuth, isAuthenticated]); // Keep dependencies
 
 
-    // --- Get Current Date and Time for Min Values ---
+    // ... (getMinDateTime, validateForm, handleChange, handlePnrFetch, handleSubmit remain the same) ...
+       // --- Get Current Date and Time for Min Values ---
     const getMinDateTime = useCallback(() => {
         const now = new Date();
         const today = now.toISOString().split('T')[0];
@@ -139,6 +149,7 @@ const Book = () => {
         return { minDate: today, minTimeForToday: minTime };
     }, []);
     const { minDate, minTimeForToday } = getMinDateTime();
+
 
     // --- Validation Function ---
     const validateForm = useCallback((): boolean => {
@@ -178,14 +189,16 @@ const Book = () => {
             if (!data.seatNumber.trim()) newErrors.seatNumber = 'Seat number required for seat delivery';
         }
 
+
         // 3. Luggage Details
         const bags = parseInt(data.numberOfBags, 10);
         if (isNaN(bags) || bags <= 0) newErrors.numberOfBags = 'Enter a valid number of bags (1 or more)';
         if (!data.weightCategory) newErrors.weightCategory = 'Select a weight category';
 
-        // 4. Service & Payment (Adjusted numbering)
+        // 5. Pricing & Payment
         if (!data.serviceType) newErrors.serviceType = 'Select a service type';
         if (!data.paymentMode) newErrors.paymentMode = 'Select a payment mode';
+
 
         setErrors(newErrors);
         return Object.keys(newErrors).length === 0;
@@ -203,15 +216,13 @@ const Book = () => {
             setBookingData(prevData => ({ ...prevData, [name]: value }));
         }
 
-        // Clear the error for this field if it had one
-        if (errors[name]) {
-            setErrors(prevErrors => {
-                const updatedErrors = { ...prevErrors };
-                delete updatedErrors[name];
-                return updatedErrors;
-            });
-        }
-    }, [errors]); // Added errors dependency
+        setErrors(prevErrors => {
+            if (!prevErrors[name]) return prevErrors;
+            const updatedErrors = { ...prevErrors };
+            delete updatedErrors[name];
+            return updatedErrors;
+        });
+    }, []);
 
     // --- Handle PNR Fetch (Placeholder) ---
     const handlePnrFetch = useCallback(async () => {
@@ -220,77 +231,39 @@ const Book = () => {
             return;
         }
         alert(`TODO: Implement API call to fetch details for PNR: ${bookingData.pnrNumber}`);
+        // Placeholder logic - replace with actual API call
+        // try {
+        //   // const details = await fetchPnrDetails(bookingData.pnrNumber);
+        //   // setFetchedTrainDetails(details);
+        //   // setBookingData(prev => ({ ...prev, trainName: details.trainName, ... }));
+        // } catch (error) {
+        //   setErrors(prev => ({ ...prev, pnrNumber: 'Failed to fetch PNR details.' }));
+        // }
     }, [bookingData.pnrNumber]);
-
-
-    // --- Client-Side Assignment Function ---
-    // WARNING: See previous security notes regarding RLS policies needed for this client-side approach.
-    const assignRandomDeliveryPerson = useCallback(async (orderId: number, userId: string): Promise<boolean> => {
-        console.log(`Attempting to assign random personnel to order ${orderId}...`);
-        try {
-            // 1. Get random personnel ID
-            const { data: personnelData, error: rpcError } = await supabase.rpc(
-                'get_random_active_personnel' // DB function must exist
-            );
-            if (rpcError) throw new Error(`RPC Error finding personnel: ${rpcError.message}`);
-            if (!personnelData || personnelData.length === 0 || !personnelData[0]?.id) {
-                throw new Error("No active delivery personnel found.");
-            }
-            const personnelId = personnelData[0].id;
-            console.log(`Selected personnel ID: ${personnelId} for order ${orderId}`);
-
-            // 2. Create assignment
-            // RLS must allow insert into 'delivery_assignments' for user's own orders.
-            const { error: assignmentError } = await supabase
-                .from('delivery_assignments')
-                .insert({ order_id: orderId, personnel_id: personnelId, status: 'Assigned' });
-            if (assignmentError) throw new Error(`Assignment creation failed: ${assignmentError.message}`);
-            console.log(`Assignment created for order ${orderId}`);
-
-            // 3. Update order status
-            // RLS must allow update of 'orders' status for user's own orders.
-            const { error: orderUpdateError } = await supabase
-                .from('orders')
-                .update({ status: 'Out for Delivery' as OrderStatus })
-                .eq('id', orderId)
-                .eq('user_id', userId);
-            if (orderUpdateError) throw new Error(`Order status update failed: ${orderUpdateError.message}`);
-            console.log(`Order ${orderId} status updated to Out for Delivery`);
-
-            return true; // Success
-
-        } catch (error: any) {
-            console.error(`Error assigning delivery person to order ${orderId}:`, error);
-            // Set the main submit error to show assignment failure reason
-            setSubmitError(`Booking confirmed, but failed to assign delivery: ${error.message}`);
-            return false; // Failure
-        }
-    }, []); // No external dependencies needed within this function
 
 
     // --- Handle Submit ---
     const handleSubmit = useCallback(async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!isAuthenticated || !currentUser) {
-             setSubmitError("Authentication required. Please log in again.");
-             // Optionally re-trigger auth check or prompt login
+        if (!isAuthenticated) {
+             setSubmitError("You must be logged in to submit a booking.");
              return;
         }
 
         setSubmitError(null);
         setIsSubmitSuccess(false);
 
+
         if (validateForm()) {
             setIsSubmitting(true);
-            let insertedBookingId: string | null = null; // Booking ID is UUID
-            let insertedOrderId: number | null = null; // Order ID is bigint/number
-            let assignmentAttempted = false;
-            let assignmentSucceeded = false;
-
             try {
-                // 1. Prepare Booking Data
-                const bookingPayload = { /* ... copy payload from previous answer ... */
-                    user_id: currentUser.id,
+                 const { data: { user } } = await supabase.auth.getUser();
+                 if (!user) {
+                     throw new Error("Authentication session lost. Please log in again.");
+                 }
+
+                const dataToSubmit = {
+                    user_id: user.id,
                     name: bookingData.name.trim(),
                     phone: bookingData.phone.trim(),
                     email: bookingData.email.trim(),
@@ -312,68 +285,26 @@ const Book = () => {
                     insurance_requested: bookingData.insuranceRequested,
                     service_type: bookingData.serviceType,
                     payment_mode: bookingData.paymentMode,
-                    booking_status: 'Confirmed', // Set status
+                    booking_status: 'Pending',
+                    // estimated_cost: 0,
                 };
-                console.log("Submitting booking:", bookingPayload);
 
-                // 2. Insert into 'bookings' table
-                const { data: insertedBooking, error: bookingError } = await supabase
+                console.log("Submitting to Supabase:", dataToSubmit);
+
+                const { error } = await supabase
                     .from('bookings')
-                    .insert(bookingPayload)
-                    .select('id') // Select the UUID id
-                    .single();
+                    .insert([dataToSubmit]);
 
-                if (bookingError) throw new Error(`Booking insert failed: ${bookingError.message}`);
-                if (!insertedBooking?.id) throw new Error("Booking created but failed to get ID.");
-                insertedBookingId = insertedBooking.id; // Store the UUID
-                console.log('Booking successful! ID:', insertedBookingId);
-
-                // 3. Prepare and Insert into 'orders' table
-                const orderPayload = {
-                    user_id: currentUser.id,
-                    booking_id: insertedBookingId, // Use the UUID from booking insert
-                    status: 'Pending' as OrderStatus,
-                    total_amount: 0, // TODO: Calculate actual amount
-                    order_number: `BE${Date.now().toString().slice(-6)}`, // Simpler example order number
-                };
-                console.log("Submitting order:", orderPayload);
-
-                const { data: insertedOrder, error: orderError } = await supabase
-                    .from('orders')
-                    .insert(orderPayload)
-                    .select('id') // Select the bigint/number id
-                    .single();
-
-                if (orderError) throw new Error(`Order creation failed: ${orderError.message}`);
-                if (!insertedOrder?.id) throw new Error("Order created but failed to get ID.");
-                insertedOrderId = insertedOrder.id; // Store the number ID
-                console.log(`Order created! ID: ${insertedOrderId}, linked to Booking ID: ${insertedBookingId}`);
-
-                // 4. Assign Delivery Person
-                assignmentAttempted = true;
-                assignmentSucceeded = await assignRandomDeliveryPerson(insertedOrderId, currentUser.id);
-
-                // 5. Handle overall success/partial success
-                setIsSubmitSuccess(true); // Show success overlay even if assignment fails
-                if (!assignmentSucceeded) {
-                    // Error message is already set by assignRandomDeliveryPerson
-                    console.warn("Booking/Order succeeded, but assignment failed.");
+                if (error) {
+                    console.error('Supabase booking insert error:', error);
+                    setSubmitError(`Booking failed: ${error.message}. Please try again.`);
+                    setIsSubmitting(false);
                 } else {
-                    setSubmitError(null); // Clear any potential previous errors if fully successful
-                }
+                    console.log('Booking successful!');
+                    setIsSubmitSuccess(true);
 
-            } catch (err: any) {
-                console.error('Error during submission process:', err);
-                setSubmitError(err.message || 'An unexpected error occurred during booking.');
-                // If error occurred before assignment, these will be false/null
-            } finally {
-                // Reset form ONLY if booking+order succeeded (even if assignment failed)
-                if (insertedOrderId) {
-                     // Use a longer timeout if assignment failed, so user can see the message
-                    const resetDelay = assignmentAttempted && !assignmentSucceeded ? 5000 : 3000;
                     setTimeout(() => {
-                        setIsSubmitSuccess(false); // Hide success overlay
-                         setBookingData({ // Reset form state
+                       setBookingData({ // Reset form
                             name: '', phone: '', email: '', pickupLocationType: '', pickupAddress: '',
                             dropLocationType: '', dropAddress: '', pickupDate: '', pickupTime: '',
                             trainNumber: '', trainName: '', pnrNumber: '', coachNumber: '', seatNumber: '',
@@ -382,38 +313,35 @@ const Book = () => {
                             paymentMode: '',
                         });
                         setErrors({});
-                        setSubmitError(null); // Clear final error state
-                        setIsSubmitting(false); // Re-enable submit button
+                        setSubmitError(null);
+                        setIsSubmitSuccess(false);
+                        setIsSubmitting(false);
                         // navigate('/my-bookings'); // Optional redirect
-                    }, resetDelay);
-                } else {
-                     // If booking or order insert failed, just stop submitting
-                     setIsSubmitting(false);
+                    }, 3000);
                 }
+            } catch (err: any) {
+                console.error('Error during submission process:', err);
+                setSubmitError(err.message || 'An unexpected error occurred.');
+                setIsSubmitting(false);
             }
         } else {
-            // Validation failed
-            const errorCount = Object.keys(errors).length;
-            setSubmitError(`Please fix the ${errorCount} error${errorCount > 1 ? 's' : ''} marked in red below.`);
-            // Focus and scroll to the first error field
+            console.log("Validation failed", errors);
+             setSubmitError("Please fix the errors marked in the form.");
              const firstErrorKey = Object.keys(errors)[0];
              if (firstErrorKey) {
                  const element = document.getElementById(firstErrorKey);
-                 setTimeout(() => { // Slight delay helps browser focus correctly after state updates
-                     element?.focus({ preventScroll: true });
-                     element?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                 }, 50);
+                 element?.focus({ preventScroll: true });
+                 element?.scrollIntoView({ behavior: 'smooth', block: 'center' });
              }
-             setIsSubmitting(false); // Re-enable submit button
         }
-    }, [bookingData, validateForm, isAuthenticated, currentUser, errors, assignRandomDeliveryPerson]); // Added dependencies
+    }, [bookingData, validateForm, navigate, isAuthenticated]);
 
 
     // --- Render Logic ---
 
-    // 1. Auth Loading state
+    // 1. Loading state
     if (isLoadingAuth) {
-        return ( /* ... Loading Spinner ... */
+        return (
           <div className="flex justify-center items-center min-h-screen bg-gray-50">
             <div className="text-center">
                  <svg className="animate-spin h-10 w-10 text-[#ff8c00] mx-auto mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -426,9 +354,9 @@ const Book = () => {
         );
     }
 
-    // 2. Not authenticated -> Show Login Prompt
+    // 2. Not authenticated -> Show Prompt (using the modified component)
     if (!isAuthenticated) {
-        return <PleaseLoginPrompt />;
+        return <PleaseLoginPrompt />; // This now has the button with the correct onClick
     }
 
     // 3. Submission Success Overlay
@@ -437,23 +365,19 @@ const Book = () => {
           <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-green-50 text-center p-4">
              <GreenCheckmark />
             <h2 className="mt-6 text-2xl sm:text-3xl font-bold text-green-700">Booking Confirmed!</h2>
-            {/* Show specific message if assignment failed during the submit process */}
-            {submitError?.includes('assign delivery') ? (
-                 <p className="mt-2 text-lg text-orange-600 font-medium px-4">{submitError}</p>
-            ) : (
-                 <p className="mt-2 text-lg text-gray-600">Your BagEase booking is successful. Check 'My Account' for details.</p>
-            )}
+            <p className="mt-2 text-lg text-gray-600">Your BagEase booking is successful. Check your bookings page for details.</p>
+            {/* Maybe add a button to go to 'My Bookings' */}
+             {/* <button onClick={() => navigate('/my-bookings')} className="mt-4 px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">View My Bookings</button> */}
           </div>
         );
     }
 
-    // 4. Authenticated: Show the Booking Form
-    // Helper for input props, adds error styling
+    // 4. Authenticated, show the form
     const commonInputProps = (name: keyof typeof bookingData, isRequired = true) => ({
          id: name,
         name: name,
         onChange: handleChange,
-        className: `mt-1 block w-full px-3 py-2 bg-white border ${errors[name] ? 'border-red-500 ring-1 ring-red-500' : 'border-gray-300'} rounded-md shadow-sm focus:outline-none focus:ring-1 focus:ring-[#ff8c00] focus:border-[#ff8c00] sm:text-sm disabled:bg-gray-100 disabled:cursor-not-allowed`,
+        className: `mt-1 block w-full px-3 py-2 bg-white border ${errors[name] ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm focus:outline-none focus:ring-1 focus:ring-[#ff8c00] focus:border-[#ff8c00] sm:text-sm disabled:bg-gray-100 disabled:cursor-not-allowed`,
         disabled: isSubmitting,
         'aria-invalid': errors[name] ? "true" : "false",
         'aria-describedby': errors[name] ? `${name}-error` : undefined,
@@ -470,43 +394,47 @@ const Book = () => {
                 </p>
 
                 <form onSubmit={handleSubmit} noValidate className="bg-white p-6 sm:p-8 rounded-lg shadow-lg space-y-8">
-                     {/* General Submission/Validation Error Display */}
-                     {/* This shows ONLY if isSubmitSuccess is false */}
-                    {submitError && !isSubmitSuccess && (
-                        <div className="p-3 bg-red-100 border-l-4 border-red-500 text-red-700 rounded-md text-sm mb-6" role="alert">
-                            <p className="font-bold">{submitError.includes('fix the') ? 'Validation Error' : 'Oops! Something went wrong.'}</p>
+                     {/* General Submission Error */}
+                    {submitError && (
+                        <div className="p-3 bg-red-100 border-l-4 border-red-500 text-red-700 rounded-md text-sm" role="alert">
+                            <p className="font-bold">Oops! Something went wrong.</p>
                             <p>{submitError}</p>
                         </div>
                     )}
 
-                    {/* Form Sections (No structural changes needed from previous version) */}
                     {/* === Section 1: User Information === */}
                     <fieldset className="space-y-6">
-                         <legend className="text-lg font-semibold text-gray-800 border-b border-gray-200 pb-2 mb-4">1. Your Contact Information</legend>
+                        <legend className="text-lg font-semibold text-gray-800 border-b border-gray-200 pb-2 mb-4">
+                            1. Your Contact Information
+                        </legend>
+                        {/* ... Name, Phone, Email inputs ... */}
                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                             <div>
-                                 <label htmlFor="name" className="block text-sm font-medium text-gray-700">Full Name</label>
-                                 <input type="text" {...commonInputProps('name', true)} value={bookingData.name} placeholder="e.g., Priya Sharma" autoComplete="name" />
-                                 {errors.name && <p id="name-error" className="mt-1 text-xs text-red-600">{errors.name}</p>}
-                             </div>
-                             <div>
-                                 <label htmlFor="phone" className="block text-sm font-medium text-gray-700">Phone Number</label>
-                                 <input type="tel" {...commonInputProps('phone', true)} value={bookingData.phone} placeholder="e.g., 9876543210" autoComplete="tel" />
-                                 {errors.phone && <p id="phone-error" className="mt-1 text-xs text-red-600">{errors.phone}</p>}
-                             </div>
-                         </div>
-                         <div>
-                             <label htmlFor="email" className="block text-sm font-medium text-gray-700">Email Address</label>
-                             <input type="email" {...commonInputProps('email', true)} value={bookingData.email} placeholder="you@example.com" autoComplete="email"/>
-                             {errors.email && <p id="email-error" className="mt-1 text-xs text-red-600">{errors.email}</p>}
-                         </div>
-                     </fieldset>
+                            <div>
+                                <label htmlFor="name" className="block text-sm font-medium text-gray-700">Full Name</label>
+                                <input type="text" {...commonInputProps('name', true)} value={bookingData.name} placeholder="e.g., Priya Sharma" autoComplete="name" />
+                                {errors.name && <p id="name-error" className="mt-1 text-xs text-red-600">{errors.name}</p>}
+                            </div>
+                            <div>
+                                <label htmlFor="phone" className="block text-sm font-medium text-gray-700">Phone Number</label>
+                                <input type="tel" {...commonInputProps('phone', true)} value={bookingData.phone} placeholder="e.g., 9876543210" autoComplete="tel" />
+                                {errors.phone && <p id="phone-error" className="mt-1 text-xs text-red-600">{errors.phone}</p>}
+                            </div>
+                        </div>
+                        <div>
+                            <label htmlFor="email" className="block text-sm font-medium text-gray-700">Email Address</label>
+                            <input type="email" {...commonInputProps('email', true)} value={bookingData.email} placeholder="you@example.com" autoComplete="email"/>
+                            {errors.email && <p id="email-error" className="mt-1 text-xs text-red-600">{errors.email}</p>}
+                        </div>
+                    </fieldset>
 
                     {/* === Section 2: Pickup & Drop-Off Details === */}
                     <fieldset className="space-y-6 border-t border-gray-200 pt-6">
-                         <legend className="text-lg font-semibold text-gray-800 border-b border-gray-200 pb-2 mb-4">2. Pickup & Drop-Off Details</legend>
-                         {/* ... All fields from section 2 ... */}
-                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                         <legend className="text-lg font-semibold text-gray-800 border-b border-gray-200 pb-2 mb-4">
+                            2. Pickup & Drop-Off Details
+                        </legend>
+                         {/* ... Pickup, Dropoff, Date, Time, Train, PNR, Coach, Seat, Preference inputs ... */}
+                          {/* Pickup Location */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div>
                                 <label htmlFor="pickupLocationType" className="block text-sm font-medium text-gray-700">Pickup From</label>
                                 <select {...commonInputProps('pickupLocationType', true)} value={bookingData.pickupLocationType}>
@@ -525,6 +453,8 @@ const Book = () => {
                                 {errors.pickupAddress && <p id="pickupAddress-error" className="mt-1 text-xs text-red-600">{errors.pickupAddress}</p>}
                             </div>
                         </div>
+
+                        {/* Drop-off Location */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                              <div>
                                 <label htmlFor="dropLocationType" className="block text-sm font-medium text-gray-700">Drop-off At</label>
@@ -543,6 +473,8 @@ const Book = () => {
                                 {errors.dropAddress && <p id="dropAddress-error" className="mt-1 text-xs text-red-600">{errors.dropAddress}</p>}
                             </div>
                         </div>
+
+                        {/* Date & Time */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div>
                                 <label htmlFor="pickupDate" className="block text-sm font-medium text-gray-700">Pickup Date</label>
@@ -555,6 +487,8 @@ const Book = () => {
                                 {errors.pickupTime && <p id="pickupTime-error" className="mt-1 text-xs text-red-600">{errors.pickupTime}</p>}
                             </div>
                         </div>
+
+                        {/* Train Details */}
                         <h3 className="text-md font-medium text-gray-700 pt-4 border-t border-gray-100 mt-4">Train Details (If Applicable)</h3>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                            <div>
@@ -565,25 +499,52 @@ const Book = () => {
                              <div>
                                 <label htmlFor="trainName" className="block text-sm font-medium text-gray-700">Train Name <span className="text-xs text-gray-500">(Optional)</span></label>
                                 <input type="text" {...commonInputProps('trainName', false)} value={bookingData.trainName} placeholder="e.g., Rajdhani Express" />
+                                {/* No error display needed for optional field */}
                             </div>
                         </div>
                          <div className="relative">
                             <label htmlFor="pnrNumber" className="block text-sm font-medium text-gray-700">PNR Number <span className="text-xs text-gray-500">(Optional)</span></label>
-                            <input type="text" {...commonInputProps('pnrNumber', false)} value={bookingData.pnrNumber} placeholder="10-digit PNR" maxLength={10} />
+                            <input
+                                type="text"
+                                {...commonInputProps('pnrNumber', false)} // PNR explicitly optional
+                                value={bookingData.pnrNumber}
+                                placeholder="10-digit PNR"
+                                maxLength={10}
+                            />
+                            {/* PNR Fetch Button - Keep commented if not implemented */}
+                            {/* <button type="button" onClick={handlePnrFetch} ... >Fetch</button> */}
                             {errors.pnrNumber && <p id="pnrNumber-error" className="mt-1 text-xs text-red-600">{errors.pnrNumber}</p>}
                         </div>
+
+                        {/* Coach/Seat conditionally required */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                              <div>
-                                <label htmlFor="coachNumber" className="block text-sm font-medium text-gray-700">Coach <span className="text-xs text-gray-500">(Required if 'Deliver to Seat')</span></label>
-                                <input type="text" {...commonInputProps('coachNumber', bookingData.deliveryPreference === 'Deliver to Seat')} value={bookingData.coachNumber} placeholder="e.g., S5" maxLength={4} />
+                                <label htmlFor="coachNumber" className="block text-sm font-medium text-gray-700">
+                                    Coach <span className="text-xs text-gray-500">(Required if 'Deliver to Seat')</span>
+                                </label>
+                                <input
+                                    type="text"
+                                    {...commonInputProps('coachNumber', bookingData.deliveryPreference === 'Deliver to Seat')}
+                                    value={bookingData.coachNumber}
+                                    placeholder="e.g., S5"
+                                    maxLength={4} />
                                 {errors.coachNumber && <p id="coachNumber-error" className="mt-1 text-xs text-red-600">{errors.coachNumber}</p>}
                             </div>
                              <div>
-                                <label htmlFor="seatNumber" className="block text-sm font-medium text-gray-700">Seat <span className="text-xs text-gray-500">(Required if 'Deliver to Seat')</span></label>
-                                <input type="text" {...commonInputProps('seatNumber', bookingData.deliveryPreference === 'Deliver to Seat')} value={bookingData.seatNumber} placeholder="e.g., 32" maxLength={3} />
+                                <label htmlFor="seatNumber" className="block text-sm font-medium text-gray-700">
+                                    Seat <span className="text-xs text-gray-500">(Required if 'Deliver to Seat')</span>
+                                </label>
+                                <input
+                                    type="text"
+                                     {...commonInputProps('seatNumber', bookingData.deliveryPreference === 'Deliver to Seat')}
+                                     value={bookingData.seatNumber}
+                                     placeholder="e.g., 32"
+                                     maxLength={3} />
                                 {errors.seatNumber && <p id="seatNumber-error" className="mt-1 text-xs text-red-600">{errors.seatNumber}</p>}
                             </div>
                         </div>
+
+                        {/* Delivery Preference */}
                         <div>
                             <label htmlFor="deliveryPreference" className="block text-sm font-medium text-gray-700">Delivery Preference at Destination Station</label>
                             <select {...commonInputProps('deliveryPreference', true)} value={bookingData.deliveryPreference}>
@@ -594,13 +555,15 @@ const Book = () => {
                             </select>
                              {errors.deliveryPreference && <p id="deliveryPreference-error" className="mt-1 text-xs text-red-600">{errors.deliveryPreference}</p>}
                         </div>
-                     </fieldset>
+                    </fieldset>
 
                     {/* === Section 3: Luggage Details === */}
-                     <fieldset className="space-y-6 border-t border-gray-200 pt-6">
-                         <legend className="text-lg font-semibold text-gray-800 border-b border-gray-200 pb-2 mb-4">3. Luggage Details</legend>
-                         {/* ... All fields from section 3 ... */}
-                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <fieldset className="space-y-6 border-t border-gray-200 pt-6">
+                        <legend className="text-lg font-semibold text-gray-800 border-b border-gray-200 pb-2 mb-4">
+                            3. Luggage Details
+                        </legend>
+                        {/* ... Bags, Weight, Special Items, Insurance inputs ... */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div>
                                 <label htmlFor="numberOfBags" className="block text-sm font-medium text-gray-700">Number of Bags</label>
                                 <input type="number" {...commonInputProps('numberOfBags', true)} value={bookingData.numberOfBags} min="1" max="20" step="1" placeholder="1" />
@@ -619,24 +582,42 @@ const Book = () => {
                         </div>
                         <div>
                             <label htmlFor="specialItemsDescription" className="block text-sm font-medium text-gray-700">Special Handling Notes <span className="text-xs text-gray-500">(Optional)</span></label>
-                             <textarea {...commonInputProps('specialItemsDescription', false)} value={bookingData.specialItemsDescription} rows={3} placeholder="e.g., Fragile items inside..." ></textarea>
+                             <textarea
+                                {...commonInputProps('specialItemsDescription', false)} // Optional field
+                                value={bookingData.specialItemsDescription}
+                                rows={3}
+                                placeholder="e.g., Fragile items inside, handle with care, contains electronics..."
+                             ></textarea>
+                             {/* No error display for optional field */}
                         </div>
                         <div className="relative flex items-start">
                             <div className="flex items-center h-5">
-                               <input id="insuranceRequested" name="insuranceRequested" type="checkbox" checked={bookingData.insuranceRequested} onChange={handleChange} disabled={isSubmitting} className="focus:ring-[#ff8c00] h-4 w-4 text-[#ff8c00] border-gray-300 rounded disabled:opacity-50" />
+                               <input
+                                    id="insuranceRequested"
+                                    name="insuranceRequested"
+                                    type="checkbox"
+                                    checked={bookingData.insuranceRequested}
+                                    onChange={handleChange}
+                                    disabled={isSubmitting}
+                                    className="focus:ring-[#ff8c00] h-4 w-4 text-[#ff8c00] border-gray-300 rounded disabled:opacity-50"
+                                />
                            </div>
                             <div className="ml-3 text-sm">
-                                <label htmlFor="insuranceRequested" className="font-medium text-gray-700">Add Luggage Insurance?</label>
-                                <p className="text-xs text-gray-500">(Optional, additional charges may apply)</p>
+                                <label htmlFor="insuranceRequested" className="font-medium text-gray-700">
+                                    Add Luggage Insurance?
+                                </label>
+                                <p className="text-xs text-gray-500">(Optional, additional charges may apply based on declared value)</p>
                             </div>
                         </div>
-                     </fieldset>
+                    </fieldset>
 
                     {/* === Section 4: Service & Payment === */}
                     <fieldset className="space-y-6 border-t border-gray-200 pt-6">
-                         <legend className="text-lg font-semibold text-gray-800 border-b border-gray-200 pb-2 mb-4">4. Service & Payment</legend>
-                         {/* ... All fields from section 4 ... */}
-                          <div>
+                        <legend className="text-lg font-semibold text-gray-800 border-b border-gray-200 pb-2 mb-4">
+                            4. Service & Payment
+                        </legend>
+                         {/* ... Service Type, Payment Mode inputs ... */}
+                           <div>
                             <label htmlFor="serviceType" className="block text-sm font-medium text-gray-700">Service Speed</label>
                             <select {...commonInputProps('serviceType', true)} value={bookingData.serviceType}>
                                 <option value="" disabled>-- Select Service --</option>
@@ -645,6 +626,10 @@ const Book = () => {
                             </select>
                              {errors.serviceType && <p id="serviceType-error" className="mt-1 text-xs text-red-600">{errors.serviceType}</p>}
                         </div>
+
+                        {/* Estimated Cost Placeholder */}
+                         {/* <div className="p-3 bg-blue-50 border border-blue-200 rounded-md"> ... </div> */}
+
                         <div>
                             <label htmlFor="paymentMode" className="block text-sm font-medium text-gray-700">Preferred Payment Method</label>
                             <select {...commonInputProps('paymentMode', true)} value={bookingData.paymentMode}>
@@ -657,16 +642,16 @@ const Book = () => {
                             </select>
                              {errors.paymentMode && <p id="paymentMode-error" className="mt-1 text-xs text-red-600">{errors.paymentMode}</p>}
                         </div>
-                     </fieldset>
+                    </fieldset>
 
                     {/* === Submit Button === */}
                     <div className="pt-5 border-t border-gray-200">
                         <button
                             type="submit"
                             className="group relative w-full flex justify-center py-3 px-4 border border-transparent text-base font-medium rounded-md text-white bg-[#ff8c00] hover:bg-[#e07b00] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#ff8c00] disabled:opacity-60 disabled:cursor-wait transition duration-150 ease-in-out"
-                            disabled={isSubmitting || !isAuthenticated}
+                            disabled={isSubmitting || !isAuthenticated} // Also disable if somehow user gets logged out between render and click
                         >
-                            {isSubmitting ? ( /* ... Loading SVG ... */
+                            {isSubmitting ? (
                                 <>
                                     <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
@@ -675,14 +660,13 @@ const Book = () => {
                                     Processing Booking...
                                 </>
                             ) : (
-                                'Confirm Booking'
+                                'Confirm & Proceed to Payment' // Or just 'Confirm Booking'
                             )}
                         </button>
                     </div>
 
                      {/* --- Footer Info --- */}
                      <div className="text-center text-xs text-gray-500 pt-4">
-                         {/* ... Footer Links ... */}
                          <p>By clicking confirm, you agree to BagEase's <a href="/terms" target="_blank" rel="noopener noreferrer" className="text-[#ff8c00] hover:underline">Terms of Service</a> and <a href="/privacy" target="_blank" rel="noopener noreferrer" className="text-[#ff8c00] hover:underline">Privacy Policy</a>.</p>
                          <p className="mt-1">Need help? Call us at <a href="tel:+91XXXXXXXXXX" className="text-[#ff8c00] hover:underline">+91-XXX-XXXXXXX</a> or visit our Help Center.</p>
                      </div>

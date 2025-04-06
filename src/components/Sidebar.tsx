@@ -858,7 +858,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
                 )}
                 {/* Extra padding at the bottom inside the sidebar */}
                 <div className="flex-shrink-0 h-4 bg-white"></div>
-            </div> {/* End Sidebar Panel */}
+            </div> {/* End Sidebar Panel */} 
         </>
     );
 };

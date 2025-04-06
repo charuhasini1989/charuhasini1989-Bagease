@@ -33,39 +33,34 @@ interface ProfileData {
     email: string | null; // Email might be in profile or just auth.user
     phone: string | null;
     date_of_birth: string | null;
-    // --- Address fields are NOT included here yet, matching your DB screenshot ---
-    // address_line1?: string | null;
-    // city?: string | null;
-    // postal_code?: string | null;
-    // country?: string | null;
-    // --- Aadhar should ideally not be fetched/displayed regularly ---
-    // aadhar_number: string | null;
+    // --- Address fields are NOT included here, matching your DB schema image ---
     created_at: string;
     updated_at: string;
 }
 
-// Must match the ENUM definition in SQL
+// Must match the ENUM definition in SQL ('order_status' type)
 type OrderStatus = 'Pending' | 'Processing' | 'Shipped' | 'Out for Delivery' | 'Delivered' | 'Cancelled' | 'Failed';
 
+// Interface for data fetched from the 'orders' table
 interface OrderData {
     id: number; // bigint maps to number in JS/TS
-    user_id: string; // Make sure this exists in your select if needed elsewhere
+    user_id: string; // Foreign key to auth.users
     order_number: string | null;
-    status: OrderStatus;
+    status: OrderStatus; // Uses the custom 'order_status' ENUM type
     total_amount: number; // numeric maps to number
     estimated_delivery: string | null; // timestamp maps to string (ISO format)
-    delivered_at: string | null;
+    delivered_at: string | null; // timestamp maps to string (ISO format)
     created_at: string;
     updated_at: string;
 }
 
-// Represents data fetched for an active delivery, joining assignment and personnel
+// Represents data fetched for an active delivery, joining 'delivery_assignments', 'delivery_personnel', and 'orders' tables
 interface ActiveDeliveryInfo {
-    order_id: number;
-    tracking_link: string | null;
+    order_id: number; // Reference to the 'orders' table's ID
+    tracking_link: string | null; // From 'delivery_assignments'
     // Nested personnel details from the join/select
     delivery_personnel: {
-        id: string; // Include id if needed
+        id: string; // Personnel's unique ID
         full_name: string | null;
         phone: string | null;
         vehicle_plate: string | null;
@@ -74,23 +69,23 @@ interface ActiveDeliveryInfo {
 
 
 const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
-    // --- Authentication & Form State (From Working Version) ---
+    // --- Authentication & Form State ---
     const [currentUser, setCurrentUser] = useState<User | null>(null);
     const [formData, setFormData] = useState<FormData>({
         email: '', password: '', full_name: '', phone: '', date_of_birth: '', aadhar_number: '',
     });
     const [feedback, setFeedback] = useState<FeedbackMessage | null>(null);
-    const [authLoading, setAuthLoading] = useState<boolean>(true); // Renamed original 'loading'
+    const [authLoading, setAuthLoading] = useState<boolean>(true);
     const [isSigningUp, setIsSigningUp] = useState<boolean>(false);
     const [activeSection, setActiveSection] = useState<string>('');
     const emailInputRef = useRef<HTMLInputElement>(null);
     const nameInputRef = useRef<HTMLInputElement>(null);
 
-    // --- Data Fetching State (From Goal Version) ---
+    // --- Data Fetching State ---
     const [profileData, setProfileData] = useState<ProfileData | null>(null);
-    const [activeOrders, setActiveOrders] = useState<OrderData[]>([]); // For tracking
-    const [pastOrders, setPastOrders] = useState<OrderData[]>([]); // For history
-    const [activeDeliveryInfo, setActiveDeliveryInfo] = useState<ActiveDeliveryInfo | null>(null); // For current delivery person details
+    const [activeOrders, setActiveOrders] = useState<OrderData[]>([]); // For tracking section (uses 'orders' table)
+    const [pastOrders, setPastOrders] = useState<OrderData[]>([]); // For history section (uses 'orders' table)
+    const [activeDeliveryInfo, setActiveDeliveryInfo] = useState<ActiveDeliveryInfo | null>(null); // For current delivery person details (joins 'delivery_assignments', 'delivery_personnel', 'orders')
 
     const [profileLoading, setProfileLoading] = useState<boolean>(false);
     const [trackingLoading, setTrackingLoading] = useState<boolean>(false);
@@ -156,7 +151,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []); // Run only once on mount
 
-    // --- Helper to reset Form/Section state (from Working Version) ---
+    // --- Helper to reset Form/Section state ---
     const resetAuthState = (clearFeedback = true) => {
         setActiveSection('');
         setFormData({ email: '', password: '', full_name: '', phone: '', date_of_birth: '', aadhar_number: '' });
@@ -164,7 +159,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
         setIsSigningUp(false); // Default to login mode
     }
 
-    // --- Body Scroll Lock (from Working Version) ---
+    // --- Body Scroll Lock ---
     useEffect(() => {
         if (isOpen) {
             document.body.style.overflow = 'hidden';
@@ -176,7 +171,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
         };
     }, [isOpen]);
 
-    // --- Input Change Handler (from Working Version) ---
+    // --- Input Change Handler ---
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const { name, value } = e.target;
         setFormData(prev => ({ ...prev, [name]: value }));
@@ -192,6 +187,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
         const errorMessage = error.message || '';
         const errorCode = (error as PostgrestError)?.code || '';
 
+        // --- Auth Errors ---
         if (errorMessage.includes('Invalid login credentials')) {
             if (!isSigningUp) {
                 message = "Account not found or invalid password. Want to sign up?"; // Adjusted message
@@ -203,7 +199,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
                  message = 'Invalid details provided during signup attempt.';
                  type = 'error';
             }
-        } else if (errorMessage.includes('User already registered') || errorCode === '23505') {
+        } else if (errorMessage.includes('User already registered') || (errorCode === '23505' && errorMessage.includes('auth.users'))) { // Be more specific about unique violation
             message = "This email is already registered. Please log in.";
             type = 'info';
             setIsSigningUp(false);
@@ -215,31 +211,36 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
             message = 'Please enter a valid email address.';
         } else if (errorMessage.includes('Email rate limit exceeded') || errorMessage.includes('too many requests')) {
             message = 'Too many attempts. Please try again later.';
-        } else if (errorMessage.includes('check constraint') && errorMessage.includes('phone')) {
-             message = 'Invalid phone number format provided.';
-        } else if (errorMessage.includes('profiles_pkey') || (errorCode === '23505' && errorMessage.includes('profiles'))) {
-             message = 'Profile data conflict. Could not save profile.';
+        // --- Database/Postgrest Errors ---
+        } else if (errorCode === '23505' && errorMessage.includes('profiles')) { // Unique constraint violation on profiles
+             message = 'Profile data conflict (e.g., duplicate phone/email if set unique). Could not save profile.';
              type = 'error';
-        } else if (errorCode === '42501') {
+        } else if (errorCode === '23503') { // Foreign key violation
+             message = "Could not save data due to a reference error (e.g., trying to link to a non-existent user/order).";
+             type = 'error';
+        } else if (errorMessage.includes('check constraint') && errorMessage.includes('phone')) { // Check constraint failure
+             message = 'Invalid phone number format provided.';
+        } else if (errorCode === '42501') { // Insufficient permissions
             message = "Permission denied. Check RLS policies.";
             type = 'error';
-        } else if (errorCode === '42P01') {
-            message = "Data table not found. Contact support.";
+        } else if (errorCode === '42P01') { // Table not found
+            message = "Data table not found. Contact support."; // Should be less common now, but keep for safety
             type = 'error';
-        } else if (errorCode === '23503') {
-             message = "Could not save data due to a reference error.";
-             type = 'error';
-        } else if (error.message?.includes('Aadhar number must be 12 digits')) {
-            message = 'Aadhar number must be 12 digits.'; // Catch client-side validation error
+        } else if (errorCode === 'PGRST116') { // Single row expected, none/multiple found (handled in fetchProfileData)
+            message = "Expected a single record but found none or multiple."; // Generic message if it happens elsewhere
+            type = 'error';
+        // --- Client-side Validation Errors ---
+        } else if (error.message?.includes('Aadhar number must be 12 digits')) { // Check for specific client error message
+            message = 'Aadhar number must be 12 digits.';
             type = 'error';
         } else {
-             message = errorMessage || "An unknown error occurred."; // Default to Supabase message
+             message = errorMessage || "An unknown error occurred."; // Default to Supabase message or generic error
              type = 'error';
         }
         return { type, text: message };
     };
 
-    // --- Authentication Handler (Supabase - Merged Logic) ---
+    // --- Authentication Handler (Supabase - Sign Up / Log In) ---
     const handleAuth = async (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault();
         setFeedback(null);
@@ -248,17 +249,19 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
 
         try {
             if (isSigningUp) {
-                // --- Sign Up Logic (From Working Version + Validation) ---
+                // --- Sign Up Logic ---
                 if (!currentFormData.full_name) throw new Error("Full name is required for signup.");
                 if (currentFormData.password.length < 6) throw new Error("Password must be at least 6 characters.");
                  const aadharPattern = /^\d{12}$/;
                  if (currentFormData.aadhar_number && !aadharPattern.test(currentFormData.aadhar_number)) {
-                     throw new Error("Aadhar number must be 12 digits.");
+                     throw new Error("Aadhar number must be 12 digits."); // Client-side check
                  }
 
+                // 1. Sign up user with Supabase Auth
                 const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
                     email: currentFormData.email,
                     password: currentFormData.password,
+                    // options: { data: { full_name: currentFormData.full_name } } // Optionally pass initial data if your trigger handles it
                 });
 
                 if (signUpError) throw signUpError;
@@ -266,21 +269,20 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
 
                 console.log('Auth signup successful for:', signUpData.user.email);
 
-                // --- Insert Profile Data (From Working Version) ---
-                // Use the fields confirmed by the DB screenshot
+                // 2. Insert corresponding profile data into 'profiles' table
                 try {
                     console.log('Attempting to insert profile for user:', signUpData.user.id);
                     // *** SECURITY WARNING: Storing raw Aadhar. Implement encryption! ***
                     const { error: profileError } = await supabase
-                        .from('profiles')
+                        .from('profiles') // Ensure 'profiles' table exists
                         .insert({
-                            id: signUpData.user.id, // Link to the auth user
-                            email: signUpData.user.email, // Optional: store email in profile too
+                            id: signUpData.user.id, // Link to the auth user ID
+                            email: signUpData.user.email, // Store email in profile too (optional redundancy)
                             full_name: currentFormData.full_name,
                             phone: currentFormData.phone || null,
                             date_of_birth: currentFormData.date_of_birth || null,
                             aadhar_number: currentFormData.aadhar_number || null, // Storing plain text - BEWARE
-                            // created_at/updated_at are handled by DB defaults/triggers
+                            // created_at/updated_at are usually handled by DB defaults/triggers
                         });
 
                     if (profileError) {
@@ -290,46 +292,46 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
                         setFeedback({ type: 'info', text: `Account created for ${signUpData.user.email}, but profile save failed: ${profileFeedback.text}. You can update later.`});
                     } else {
                         console.log('Supabase profile created successfully.');
-                        // Optionally set profileData state immediately if needed, though fetchProfileData on SIGNED_IN handles it
+                        // Profile data will be fetched by the 'SIGNED_IN' event listener
                     }
                 } catch (profileInsertError: any) {
                     console.error('Exception during profile creation:', profileInsertError);
                     setFeedback({ type: 'info', text: `Account created for ${signUpData.user.email}, but profile details couldn't be saved due to an error.`});
                 }
 
-                // Handle email verification / auto-login (From Working Version)
-                if (!signUpData.session) {
-                    if (!feedback) { // Don't override profile error feedback
+                // 3. Handle UI feedback based on email verification status
+                if (!signUpData.session) { // Email verification likely required
+                    if (!feedback) { // Don't override profile error feedback if it exists
                         setFeedback({ type: 'success', text: 'Account created! Check your email (including spam) for a confirmation link.' });
                     }
-                    setIsSigningUp(false);
+                    setIsSigningUp(false); // Switch back to login view
                     setFormData(prev => ({ ...prev, password: '', full_name: '', phone: '', date_of_birth: '', aadhar_number: '' }));
-                    // Let auth listener handle loading state eventually
-                } else {
-                    // User is signed up AND logged in (auto-confirmation enabled)
+                    // Auth listener won't fire 'SIGNED_IN' yet
+                } else { // Auto-confirmation enabled or user already verified?
                     // Auth listener 'SIGNED_IN' will handle UI update, state reset, profile fetch.
                     if (!feedback) {
                         setFeedback({ type: 'success', text: 'Account created and logged in successfully!' });
                     }
+                     // Let the 'SIGNED_IN' event handle resetting form state and UI
                 }
 
             } else {
-                // --- Log In Logic (From Working Version) ---
+                // --- Log In Logic ---
                 const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
                     email: currentFormData.email,
                     password: currentFormData.password,
                 });
 
-                if (signInError) throw signInError; // Let catch block handle login errors
+                if (signInError) throw signInError; // Let catch block handle login errors using getFriendlyErrorMessage
 
                 console.log('Logged in:', signInData.user?.email);
                 // Auth listener 'SIGNED_IN' handles UI update, state reset, and profile fetch.
             }
 
         } catch (error: any) {
-            const feedbackMessage = getFriendlyErrorMessage(error);
+            const feedbackMessage = getFriendlyErrorMessage(error); // Use the enhanced error mapping
             setFeedback(feedbackMessage);
-            // Focus logic (From Working Version)
+            // Focus logic (refocus input on error)
              if (!isSigningUp && emailInputRef.current && feedbackMessage.type === 'error') {
                 emailInputRef.current.focus();
                 emailInputRef.current.select();
@@ -342,7 +344,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
         }
     };
 
-    // --- Logout Handler (From Working Version) ---
+    // --- Logout Handler ---
     const handleLogout = async () => {
         setAuthLoading(true); // Indicate loading for logout action
         setFeedback(null);
@@ -352,10 +354,10 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
             setFeedback({ type: 'error', text: "Failed to log out. Please try again." });
             setAuthLoading(false); // Stop loading only if logout itself errors
         }
-        // Auth listener 'SIGNED_OUT' handles state reset, data clearing, and final loading=false.
+        // Auth listener 'SIGNED_OUT' handles state reset, data clearing, and setting authLoading=false.
     };
 
-    // --- Toggle Signup/Login View (From Working Version) ---
+    // --- Toggle Signup/Login View ---
     const toggleAuthMode = () => {
         const enteringSignupMode = !isSigningUp;
         setIsSigningUp(enteringSignupMode);
@@ -363,198 +365,212 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
             email: prev.email, // Keep email
             password: '', full_name: '', phone: '', date_of_birth: '', aadhar_number: '' // Clear others
         }));
-        setFeedback(null);
+        setFeedback(null); // Clear feedback when switching modes
+        // Focus the appropriate input field after the state update
         setTimeout(() => {
             if (enteringSignupMode && nameInputRef.current) nameInputRef.current.focus();
             else if (!enteringSignupMode && emailInputRef.current) emailInputRef.current.focus();
         }, 100);
     }
 
-    // --- Data Fetching Functions (From Goal Version - adjusted selects) ---
+    // --- Data Fetching Functions ---
 
-    // Fetch User Profile
+    // Fetch User Profile from 'profiles' table
     const fetchProfileData = async (userId: string) => {
         if (!userId) return;
         setProfileLoading(true);
         setProfileError(null);
         try {
-             // Select only columns known to exist in the 'profiles' table based on screenshot/signup
+             // Select columns confirmed to exist in the 'profiles' table schema
             const { data, error } = await supabase
                 .from('profiles')
-                .select('id, full_name, email, phone, date_of_birth, created_at, updated_at') // Exclude address/aadhar for now
+                .select('id, full_name, email, phone, date_of_birth, created_at, updated_at') // Exclude aadhar for display
                 .eq('id', userId)
-                .single();
+                .single(); // Expect exactly one profile per user ID
 
             if (error) {
-                 if (error.code === 'PGRST116') {
-                    console.warn("Profile not found for user:", userId);
-                    setProfileError("Profile data incomplete. Please update your details.");
+                 if (error.code === 'PGRST116') { // Specific error code for 0 or >1 rows found when 1 expected
+                    console.warn("Profile not found or multiple profiles found for user:", userId);
+                    setProfileError("Profile data incomplete or missing. Please update your details.");
                     setProfileData(null);
-                 } else throw error;
+                 } else throw error; // Re-throw other errors
             } else {
-                setProfileData(data as ProfileData);
+                setProfileData(data as ProfileData); // Set fetched profile data
             }
         } catch (error: any) {
-            const friendlyError = getFriendlyErrorMessage(error);
+            const friendlyError = getFriendlyErrorMessage(error); // Use the helper for error messages
             setProfileError(friendlyError.text || "Could not load profile.");
             setProfileData(null);
         } finally {
-            setProfileLoading(false);
+            setProfileLoading(false); // Ensure loading state is turned off
         }
     };
 
-    // Fetch Active Orders (for Tracking) - MODIFIED
-const fetchActiveOrders = async (userId: string) => {
-  if (!userId) return;
-  setTrackingLoading(true);
-  setTrackingError(null);
-  setActiveOrders([]);
-  try {
-      const activeStatuses: OrderStatus[] = ['Pending', 'Processing', 'Shipped', 'Out for Delivery'];
-      const { data, error } = await supabase
-          .from('order_tracking') // <--- CHANGED TABLE NAME
-          .select('id, user_id, order_number, status, total_amount, estimated_delivery, created_at, updated_at') // Ensure user_id is selected for filtering
-          .eq('user_id', userId)
-          .in('status', activeStatuses)
-          .order('created_at', { ascending: false });
+    // Fetch Active Orders (for Tracking Section) from 'orders' table
+    const fetchActiveOrders = async (userId: string) => {
+      if (!userId) return;
+      setTrackingLoading(true);
+      setTrackingError(null);
+      setActiveOrders([]); // Clear previous active orders
+      try {
+          // Define which statuses are considered 'active'
+          const activeStatuses: OrderStatus[] = ['Pending', 'Processing', 'Shipped', 'Out for Delivery'];
+          const { data, error } = await supabase
+              .from('orders') // Query the 'orders' table
+              .select('id, user_id, order_number, status, total_amount, estimated_delivery, created_at, updated_at')
+              .eq('user_id', userId) // Filter by the current user's ID
+              .in('status', activeStatuses) // Filter by the active statuses
+              .order('created_at', { ascending: false }); // Show newest active orders first
 
-      if (error) throw error;
-      // Cast should still be valid if columns match OrderData
-      setActiveOrders(data as OrderData[]);
-  } catch (error: any) {
-      const friendlyError = getFriendlyErrorMessage(error);
-      setTrackingError(friendlyError.text || "Could not load tracking info.");
-  } finally {
-      setTrackingLoading(false);
-  }
-};
+          if (error) throw error; // Let catch block handle error display
 
-    // Fetch Delivery Details - MODIFIED (Assuming link is to order_tracking)
-const fetchDeliveryDetails = async (userId: string) => {
-  if (!userId) return;
-  setDeliveryLoading(true);
-  setDeliveryError(null);
-  setActiveDeliveryInfo(null);
+          // Set the fetched active orders, casting to OrderData interface
+          setActiveOrders(data as OrderData[]);
+      } catch (error: any) {
+          const friendlyError = getFriendlyErrorMessage(error);
+          setTrackingError(friendlyError.text || "Could not load tracking info.");
+      } finally {
+          setTrackingLoading(false);
+      }
+    };
 
-  // Ensure profile is attempted if not already loaded/loading/errored
-  if (!profileData && !profileLoading && !profileError) {
-       await fetchProfileData(userId);
-  }
+    // Fetch Delivery Details by joining 'delivery_assignments', 'delivery_personnel', and 'orders'
+    const fetchDeliveryDetails = async (userId: string) => {
+      if (!userId) return;
+      setDeliveryLoading(true);
+      setDeliveryError(null);
+      setActiveDeliveryInfo(null); // Clear previous delivery info
 
-  try {
-      // Join assignments with personnel and *order_tracking*
-      const { data: assignmentData, error: assignmentError } = await supabase
-          .from('delivery_assignments')
-          .select(`
-              order_id,
-              tracking_link,
-              delivery_personnel ( id, full_name, phone, vehicle_plate ),
-              order_tracking!inner ( user_id, status ) // <--- CHANGED JOIN TABLE
-          `) // Use !inner join to ensure order_tracking exists
-          .eq('order_tracking.user_id', userId)   // <--- CHANGED FILTER TABLE
-          .eq('order_tracking.status', 'Out for Delivery') // <--- CHANGED FILTER TABLE
-          .limit(1)
-          .maybeSingle(); // Ok if null
-
-      if (assignmentError) throw assignmentError;
-
-      if (assignmentData) {
-           // Cast should still be valid if structure is the same
-          setActiveDeliveryInfo(assignmentData as ActiveDeliveryInfo);
-      } else {
-          setActiveDeliveryInfo(null); // No active delivery
+      // Ensure profile data is loaded or attempted first (might be needed for display context)
+      if (!profileData && !profileLoading && !profileError) {
+           await fetchProfileData(userId);
       }
 
-  } catch (error: any) {
-      const friendlyError = getFriendlyErrorMessage(error);
-      setDeliveryError(friendlyError.text || "Could not load delivery info.");
-       setActiveDeliveryInfo(null);
-  } finally {
-      setDeliveryLoading(false);
-  }
-};
+      try {
+          // Perform the join query
+          const { data: assignmentData, error: assignmentError } = await supabase
+              .from('delivery_assignments') // Start from assignments
+              .select(`
+                  order_id,
+                  tracking_link,
+                  delivery_personnel ( id, full_name, phone, vehicle_plate ),
+                  orders!inner ( user_id, status )
+              `) // Select fields from assignments, nested personnel, and inner-joined orders
+              .eq('orders.user_id', userId)   // Filter based on user_id in the joined 'orders' table
+              .eq('orders.status', 'Out for Delivery') // Filter for orders currently 'Out for Delivery' in the joined 'orders' table
+              .limit(1) // Expect at most one active delivery assignment at a time
+              .maybeSingle(); // Use maybeSingle() as it's okay if no active delivery is found (returns null instead of error)
 
-    // Fetch Past Orders (for My Orders History) - MODIFIED
-const fetchPastOrders = async (userId: string) => {
-  if (!userId) return;
-  setOrdersLoading(true);
-  setOrdersError(null);
-  setPastOrders([]);
-  try {
-      const pastStatuses: OrderStatus[] = ['Delivered', 'Cancelled', 'Failed'];
-      const { data, error } = await supabase
-          .from('order_tracking') // <--- CHANGED TABLE NAME
-          .select('id, user_id, order_number, status, total_amount, delivered_at, created_at, updated_at') // Ensure user_id is selected
-          .eq('user_id', userId)
-          .in('status', pastStatuses)
-          .order('created_at', { ascending: false })
-          .limit(25);
+          if (assignmentError) {
+               // Check for a specific relationship error, possibly due to schema mismatch or missing FK constraint
+               if (assignmentError.message.includes('relationship') && assignmentError.message.includes('delivery_assignments') && assignmentError.message.includes('orders')) {
+                   setDeliveryError("DB Relationship Error: Could not link delivery assignments to orders. Check foreign key constraints.");
+               } else {
+                   throw assignmentError; // Re-throw other Supabase errors
+               }
+           } else if (assignmentData) {
+               // If data is found, set the active delivery info
+               setActiveDeliveryInfo(assignmentData as ActiveDeliveryInfo);
+           } else {
+               setActiveDeliveryInfo(null); // Explicitly set to null if no active delivery found
+           }
 
-      if (error) throw error;
-      // Cast should still be valid
-      setPastOrders(data as OrderData[]);
-  } catch (error: any) {
-      const friendlyError = getFriendlyErrorMessage(error);
-      setOrdersError(friendlyError.text || "Could not load order history.");
-  } finally {
-      setOrdersLoading(false);
-  }
-};
+      } catch (error: any) {
+          const friendlyError = getFriendlyErrorMessage(error);
+          // Avoid overwriting a specific relationship error message if it was already set
+          if (!deliveryError) {
+              setDeliveryError(friendlyError.text || "Could not load delivery info.");
+          }
+           setActiveDeliveryInfo(null); // Ensure state is null on error
+      } finally {
+          setDeliveryLoading(false);
+      }
+    };
 
-    // --- Effect to Fetch Data Based on Active Section (From Goal Version) ---
+    // Fetch Past Orders (for My Orders History Section) from 'orders' table
+    const fetchPastOrders = async (userId: string) => {
+      if (!userId) return;
+      setOrdersLoading(true);
+      setOrdersError(null);
+      setPastOrders([]); // Clear previous past orders
+      try {
+          // Define which statuses are considered 'past' or 'completed/inactive'
+          const pastStatuses: OrderStatus[] = ['Delivered', 'Cancelled', 'Failed'];
+          const { data, error } = await supabase
+              .from('orders') // Query the 'orders' table
+              .select('id, user_id, order_number, status, total_amount, delivered_at, created_at, updated_at')
+              .eq('user_id', userId) // Filter by the current user's ID
+              .in('status', pastStatuses) // Filter by the past statuses
+              .order('created_at', { ascending: false }) // Show most recent past orders first
+              .limit(25); // Limit the number of history items fetched for performance
+
+          if (error) throw error; // Let catch block handle error display
+
+          // Set the fetched past orders, casting to OrderData interface
+          setPastOrders(data as OrderData[]);
+      } catch (error: any) {
+          const friendlyError = getFriendlyErrorMessage(error);
+          setOrdersError(friendlyError.text || "Could not load order history.");
+      } finally {
+          setOrdersLoading(false);
+      }
+    };
+
+    // --- Effect to Fetch Data Based on Active Section ---
     useEffect(() => {
-        // Run only if logged in and auth process is complete
+        // Run only if logged in and initial auth check is complete
         if (!currentUser || authLoading) return;
 
         const userId = currentUser.id;
-        console.log(`Section changed: ${activeSection}`); // Debug log
+        console.log(`Section changed: ${activeSection}, User: ${userId}`); // Debug log
 
-        // Reset errors for the sections being fetched
+        // Reset errors specifically for the sections being fetched now
         setTrackingError(null);
         setDeliveryError(null);
         setOrdersError(null);
         // Profile error persists until explicitly re-fetched or on logout
 
-        // Clear data for sections *not* currently active
+        // Clear data for sections *not* currently active to prevent showing stale data
         if (activeSection !== 'tracking') setActiveOrders([]);
         if (activeSection !== 'delivery') setActiveDeliveryInfo(null);
         if (activeSection !== 'orders') setPastOrders([]);
 
-        // Fetch data for the new active section
+        // Fetch data for the newly selected active section
         if (activeSection === 'tracking') {
             fetchActiveOrders(userId);
         } else if (activeSection === 'delivery') {
-            // Ensure profile is loaded for address display, then fetch assignment
+            // Ensure profile is loaded (or attempt loading) before fetching delivery details
              if (!profileData && !profileLoading && !profileError) {
-                 fetchProfileData(userId); // Fetch profile if needed
+                 fetchProfileData(userId); // Fetch profile if needed for display
              }
-             fetchDeliveryDetails(userId); // Always fetch latest delivery status
+             fetchDeliveryDetails(userId); // Always fetch latest delivery status and assignment
         } else if (activeSection === 'orders') {
             fetchPastOrders(userId);
         }
 
-    // Rerun when section changes or user ID changes (after auth)
+    // Rerun this effect when the active section changes, the user ID changes (after login/logout), or initial auth loading completes
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeSection, currentUser?.id, authLoading]);
 
 
-    // --- Reusable Input Field Classes (from Working Version) ---
+    // --- Reusable Input Field Classes ---
     const inputClasses = (hasError: boolean = false) =>
         `w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-colors ${hasError ? 'border-red-500 ring-red-500' : 'border-gray-300'
         } disabled:bg-gray-100 disabled:cursor-not-allowed`;
 
-    // --- Helper Functions (From Goal Version) ---
-    const formatDateTime = (dateString: string | null | undefined) => {
+    // --- Helper Formatting Functions ---
+    const formatDateTime = (dateString: string | null | undefined): string => {
         if (!dateString) return 'N/A';
         try { return new Date(dateString).toLocaleString(undefined, { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true }); }
         catch (e) { console.error("Date format error:", e); return 'Invalid Date'; }
     };
-    const formatCurrency = (amount: number | null | undefined) => {
+    const formatCurrency = (amount: number | null | undefined): string => {
         if (amount === null || amount === undefined) return 'N/A';
-        return amount.toLocaleString('en-IN', { style: 'currency', currency: 'INR' }); // Example: INR
+        // Format as Indian Rupees (INR)
+        return amount.toLocaleString('en-IN', { style: 'currency', currency: 'INR' });
     };
      const getStatusColor = (status: OrderStatus): string => {
-        // Same switch statement as before...
+        // Returns Tailwind CSS classes based on the order status
         switch (status) {
             case 'Delivered': return 'text-green-700 bg-green-100';
             case 'Out for Delivery': return 'text-blue-700 bg-blue-100';
@@ -563,47 +579,48 @@ const fetchPastOrders = async (userId: string) => {
             case 'Pending': return 'text-gray-700 bg-gray-100';
             case 'Cancelled': return 'text-red-700 bg-red-100';
             case 'Failed': return 'text-red-700 bg-red-100';
-            default: return 'text-gray-700 bg-gray-100';
+            default: return 'text-gray-700 bg-gray-100'; // Default fallback style
         }
     };
 
-    // --- Determine overall loading state for the dashboard content ---
+    // --- Determine overall loading state for the dashboard content sections ---
     const isSectionLoading = profileLoading || trackingLoading || deliveryLoading || ordersLoading;
 
-    // --- Render Logic (JSX - Based on Working Version Structure + Goal Content) ---
+    // --- Render Logic (JSX) ---
     return (
         <>
-            {/* --- Overlay (From Working Version) --- */}
+            {/* --- Background Overlay --- */}
             <div
-                onClick={authLoading ? undefined : onClose} // Prevent close during critical auth
+                onClick={authLoading ? undefined : onClose} // Prevent closing during critical auth actions
                 className={`fixed inset-0 bg-black bg-opacity-60 backdrop-blur-sm transition-opacity duration-300 z-40 ${isOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
-                aria-hidden={!isOpen}
+                aria-hidden={!isOpen} // Accessibility: hide from screen readers when closed
             />
 
-            {/* --- Sidebar Panel (From Working Version) --- */}
+            {/* --- Sidebar Panel --- */}
             <div
                 className={`fixed top-0 right-0 h-full w-full max-w-sm bg-white shadow-xl transform transition-transform duration-300 ease-in-out z-50 flex flex-col ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}
-                role="dialog" aria-modal="true" aria-labelledby="sidebar-title"
+                role="dialog" aria-modal="true" aria-labelledby="sidebar-title" // Accessibility attributes
             >
-                {/* --- Header (From Working Version) --- */}
+                {/* --- Sidebar Header --- */}
                 <div className="flex items-center justify-between p-4 border-b border-gray-200 flex-shrink-0">
                     <h2 id="sidebar-title" className="text-xl font-semibold text-gray-800">
+                        {/* Dynamic title based on auth state */}
                         {authLoading && !currentUser ? 'Loading...' : (currentUser ? 'My Account' : (isSigningUp ? 'Create Account' : 'Log In'))}
                     </h2>
                     <button
                         onClick={onClose}
                         className="p-1 rounded-full text-gray-500 hover:text-gray-800 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-1 transition-colors"
                         aria-label="Close sidebar"
-                        disabled={authLoading && !currentUser} // Disable close only during initial/auth loading
+                        disabled={authLoading && !currentUser} // Disable close only during initial auth loading
                     >
                         <X size={24} />
                     </button>
                 </div>
 
-                {/* --- Main Content Area (Scrollable - From Working Version) --- */}
+                {/* --- Main Content Area (Scrollable) --- */}
                 <div className="flex-grow p-6 overflow-y-auto">
 
-                    {/* --- Feedback Display Area (Auth Feedback - From Working Version) --- */}
+                    {/* --- Global Feedback Display Area (for Auth/General Errors) --- */}
                     {feedback && (
                         <div className={`mb-4 p-3 border rounded-md text-sm flex items-start ${feedback.type === 'error' ? 'bg-red-50 border-red-300 text-red-800' : feedback.type === 'success' ? 'bg-green-50 border-green-300 text-green-800' : 'bg-blue-50 border-blue-300 text-blue-800'}`}>
                             <AlertCircle size={18} className="mr-2 flex-shrink-0 mt-0.5" />
@@ -611,7 +628,7 @@ const fetchPastOrders = async (userId: string) => {
                         </div>
                     )}
 
-                    {/* --- Loading Indicator (Initial Auth Load Only - From Working Version) --- */}
+                    {/* --- Initial Loading Indicator (Only shown before user state is known) --- */}
                     {authLoading && !currentUser && !feedback && (
                         <div className="flex justify-center items-center py-10">
                             <Loader2 size={32} className="animate-spin text-orange-600" />
@@ -619,25 +636,26 @@ const fetchPastOrders = async (userId: string) => {
                         </div>
                     )}
 
-                    {/* --- Logged In View (Structure from Working Version, Content from Goal Version) --- */}
+                    {/* --- Logged In View --- */}
                     {!authLoading && currentUser ? (
                         <div className="space-y-6">
-                            {/* Welcome Message (Shows Profile Name/Email) */}
+                            {/* Welcome Message */}
                             <p className="text-gray-600 truncate">
                                 Welcome, <span className='font-medium'>
-                                    {profileLoading ? '...' : (profileData?.full_name || currentUser.email)}
+                                    {profileLoading ? '...' : (profileData?.full_name || currentUser.email)} {/* Show name if loaded, else email */}
                                 </span>!
+                                {/* Indicate if there was an error loading the profile */}
                                 {profileError && !profileLoading && <span className='text-red-500 text-xs ml-1'>(Profile Error)</span>}
                             </p>
 
-                            {/* Dashboard Navigation (From Working Version) */}
+                            {/* Dashboard Navigation Buttons */}
                             <nav className="space-y-2">
                                  <button disabled={authLoading || isSectionLoading} className={`flex items-center w-full px-4 py-3 rounded-lg text-left text-gray-700 hover:bg-orange-50 hover:text-orange-600 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-1 transition-colors disabled:opacity-50 disabled:pointer-events-none ${activeSection === 'tracking' ? 'bg-orange-100 text-orange-700 font-medium' : ''}`} onClick={() => setActiveSection('tracking')}> <Truck size={18} className="mr-3 flex-shrink-0" /> Order Tracking </button>
                                  <button disabled={authLoading || isSectionLoading} className={`flex items-center w-full px-4 py-3 rounded-lg text-left text-gray-700 hover:bg-orange-50 hover:text-orange-600 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-1 transition-colors disabled:opacity-50 disabled:pointer-events-none ${activeSection === 'delivery' ? 'bg-orange-100 text-orange-700 font-medium' : ''}`} onClick={() => setActiveSection('delivery')}> <MapPin size={18} className="mr-3 flex-shrink-0" /> Delivery Details </button>
                                  <button disabled={authLoading || isSectionLoading} className={`flex items-center w-full px-4 py-3 rounded-lg text-left text-gray-700 hover:bg-orange-50 hover:text-orange-600 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-1 transition-colors disabled:opacity-50 disabled:pointer-events-none ${activeSection === 'orders' ? 'bg-orange-100 text-orange-700 font-medium' : ''}`} onClick={() => setActiveSection('orders')}> <ClipboardList size={18} className="mr-3 flex-shrink-0" /> My Orders </button>
                             </nav>
 
-                            {/* Dashboard Content Display (Structure from Working Version, Content from Goal Version) */}
+                            {/* Dashboard Content Display Area */}
                             <div className="mt-6 p-4 bg-gray-50 rounded-lg min-h-[250px] border border-gray-200 relative">
                                 {/* Loading Overlay for Section Content */}
                                 {isSectionLoading && (
@@ -647,15 +665,18 @@ const fetchPastOrders = async (userId: string) => {
                                     </div>
                                 )}
 
-                                {/* --- Render Specific Section Content --- */}
+                                {/* --- Render Specific Section Content Based on 'activeSection' --- */}
                                 {!activeSection && (<p className="text-sm text-gray-500 text-center pt-4">Select an option above to view details.</p>)}
 
-                                {/* Order Tracking Content */}
+                                {/* Order Tracking Section Content */}
                                 {activeSection === 'tracking' && (
                                     <div>
                                         <h3 className="text-lg font-semibold mb-3 text-gray-800 flex items-center"><Truck size={20} className="mr-2 text-orange-600" /> Active Order Tracking</h3>
+                                        {/* Display error message if fetching tracking info failed */}
                                         {trackingError && !trackingLoading && <p className="text-sm text-red-600 flex items-center mb-3 p-2 bg-red-50 border border-red-200 rounded"><AlertCircle size={16} className="mr-1" /> {trackingError}</p>}
+                                        {/* Display message if loading is complete, no error, but no active orders found */}
                                         {!trackingLoading && !trackingError && activeOrders.length === 0 && <p className="text-sm text-gray-500 italic text-center py-4">No active orders found.</p>}
+                                        {/* Display list of active orders */}
                                         {!trackingLoading && !trackingError && activeOrders.length > 0 && (
                                             <ul className="space-y-4">
                                                 {activeOrders.map(order => (
@@ -674,36 +695,38 @@ const fetchPastOrders = async (userId: string) => {
                                     </div>
                                 )}
 
-                                {/* Delivery Details Content */}
+                                {/* Delivery Details Section Content */}
                                 {activeSection === 'delivery' && (
                                      <div>
                                         <h3 className="text-lg font-semibold mb-3 text-gray-800 flex items-center"><MapPin size={20} className="mr-2 text-orange-600" /> Delivery Details</h3>
-                                        {/* Display Errors First */}
+                                        {/* Display Errors First (Profile and Delivery specific errors) */}
                                         {profileError && !profileLoading && <p className="text-sm text-red-600 flex items-center mb-3 p-2 bg-red-50 border border-red-200 rounded"><AlertCircle size={16} className="mr-1" /> Profile: {profileError}</p>}
                                         {deliveryError && !deliveryLoading && <p className="text-sm text-red-600 flex items-center mb-3 p-2 bg-red-50 border border-red-200 rounded"><AlertCircle size={16} className="mr-1" /> Delivery Info: {deliveryError}</p>}
 
-                                        {/* Address Display Area */}
+                                        {/* User Profile Info Display Area */}
                                         <div className="mb-4 p-3 border border-dashed border-gray-300 rounded-md bg-white">
                                             <h4 className="text-md font-semibold text-gray-700 mb-1">Your Profile Info</h4>
                                             {profileLoading && <p className="text-sm text-gray-500 italic">Loading profile...</p>}
                                             {!profileLoading && profileData && (
                                                 <div className='text-sm text-gray-600 space-y-0.5'>
-                                                    <p><span className='font-medium'>Name:</span> {profileData.full_name}</p>
-                                                    <p><span className='font-medium'>Email:</span> {profileData.email}</p> {/* Assuming email is in profile */}
+                                                    <p><span className='font-medium'>Name:</span> {profileData.full_name || 'Not provided'}</p>
+                                                    <p><span className='font-medium'>Email:</span> {profileData.email || currentUser.email}</p> {/* Show profile email or fallback to auth email */}
                                                     <p><span className='font-medium'>Phone:</span> {profileData.phone || 'Not provided'}</p>
-                                                    {/* Address fields would go here if they existed in ProfileData and DB */}
-                                                    {/* <p>{profileData.address_line1}</p> ... etc */}
-                                                    <p className="text-xs text-gray-500 italic mt-1"> (Address details not implemented in profile yet)</p>
-                                                    <button className="text-xs text-orange-600 hover:underline mt-2">Edit Profile</button>
+                                                    {/* Placeholder for future address fields */}
+                                                    <p className="text-xs text-gray-500 italic mt-1"> (Address details not implemented in profile table yet)</p>
+                                                    {/* TODO: Implement Edit Profile functionality */}
+                                                    <button className="text-xs text-orange-600 hover:underline mt-2" onClick={() => alert('Edit Profile functionality not implemented.')}>Edit Profile</button>
                                                 </div>
                                             )}
-                                            {!profileLoading && !profileError && !profileData && (
+                                            {/* Handle cases where profile loading finished but data is still null (either error or not found) */}
+                                            {!profileLoading && !profileData && !profileError && (
                                                  <p className="text-sm text-gray-500 italic">Could not load profile data.</p>
                                             )}
                                         </div>
 
                                          {/* Active Delivery Driver Info Area */}
                                          <h4 className="text-md font-semibold text-gray-700 mb-1 mt-4">Active Delivery</h4>
+                                         {/* Display only if no error, loading complete, and active delivery info with personnel exists */}
                                         {!deliveryLoading && !deliveryError && activeDeliveryInfo?.delivery_personnel && (
                                             <div className="p-3 border rounded-md bg-blue-50 border-blue-200">
                                                 <h5 className="text-sm font-semibold text-blue-800 mb-2 flex items-center"><Package size={18} className="mr-1.5"/> Order #{activeDeliveryInfo.order_id} is Out for Delivery!</h5>
@@ -715,21 +738,26 @@ const fetchPastOrders = async (userId: string) => {
                                                 </div>
                                             </div>
                                         )}
+                                        {/* Display if loading complete, no error, but no active delivery found */}
                                         {!deliveryLoading && !deliveryError && !activeDeliveryInfo && (
                                             <p className="text-sm text-gray-500 italic text-center py-3">No orders currently out for delivery.</p>
                                         )}
+                                        {/* Display if loading complete, no error, assignment exists but personnel details are missing (data integrity issue?) */}
                                         {!deliveryLoading && !deliveryError && activeDeliveryInfo && !activeDeliveryInfo.delivery_personnel && (
                                             <p className="text-sm text-orange-700 italic text-center py-3">Delivery assigned, but driver details unavailable.</p>
                                         )}
                                     </div>
                                 )}
 
-                                {/* My Orders Content (History) */}
+                                {/* My Orders History Section Content */}
                                 {activeSection === 'orders' && (
                                     <div>
                                         <h3 className="text-lg font-semibold mb-3 text-gray-800 flex items-center"><ClipboardList size={20} className="mr-2 text-orange-600" /> Order History</h3>
+                                        {/* Display error message if fetching order history failed */}
                                         {ordersError && !ordersLoading && <p className="text-sm text-red-600 flex items-center mb-3 p-2 bg-red-50 border border-red-200 rounded"><AlertCircle size={16} className="mr-1" /> {ordersError}</p>}
+                                        {/* Display message if loading is complete, no error, but no past orders found */}
                                         {!ordersLoading && !ordersError && pastOrders.length === 0 && <p className="text-sm text-gray-500 italic text-center py-4">No past orders found.</p>}
+                                        {/* Display list of past orders */}
                                         {!ordersLoading && !ordersError && pastOrders.length > 0 && (
                                             <ul className="space-y-4">
                                                 {pastOrders.map(order => (
@@ -739,32 +767,34 @@ const fetchPastOrders = async (userId: string) => {
                                                              <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${getStatusColor(order.status)}`}>{order.status}</span>
                                                         </div>
                                                         <p className="text-xs text-gray-500 mb-1">Placed: {formatDateTime(order.created_at)}</p>
+                                                        {/* Show delivery date only if the order was delivered and date exists */}
                                                         {order.status === 'Delivered' && order.delivered_at && <p className="text-xs text-green-600">Delivered: {formatDateTime(order.delivered_at)}</p>}
                                                         <p className="text-sm text-gray-800 font-medium mt-1">Total: {formatCurrency(order.total_amount)}</p>
-                                                        <button className="text-xs text-orange-600 hover:underline mt-1">View Details / Reorder</button>
+                                                        {/* TODO: Implement View Details / Reorder functionality */}
+                                                        <button className="text-xs text-orange-600 hover:underline mt-1" onClick={() => alert('View Details / Reorder not implemented.')}>View Details / Reorder</button>
                                                     </li>
                                                 ))}
                                             </ul>
                                         )}
                                     </div>
                                 )}
-                            </div> {/* End Dashboard Content Display */}
+                            </div> {/* End Dashboard Content Display Area */}
 
-                            {/* Logout Button (From Working Version) */}
+                            {/* Logout Button */}
                             <button
                                 onClick={handleLogout}
-                                disabled={authLoading} // Disable only during auth actions
+                                disabled={authLoading} // Disable only during ongoing auth actions (login/logout/signup)
                                 className="flex items-center justify-center w-full px-4 py-2 mt-6 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-1 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                             >
                                 {authLoading ? <Loader2 size={18} className="mr-2 animate-spin" /> : <LogOut size={18} className="mr-2" />}
-                                {authLoading ? 'Logging out...' : 'Logout'}
+                                {authLoading ? 'Processing...' : 'Logout'} {/* Show 'Processing...' during logout */}
                             </button>
                         </div>
                     ) : (
-                        // --- Logged Out View (Login OR Signup Form - From Working Version) ---
+                        // --- Logged Out View (Login OR Signup Form) ---
                         !authLoading && !currentUser && (
                             <form onSubmit={handleAuth} className="space-y-4">
-                                {/* Signup Fields */}
+                                {/* Signup Specific Fields (conditional rendering) */}
                                 {isSigningUp && (
                                      <>
                                         <div>
@@ -782,32 +812,34 @@ const fetchPastOrders = async (userId: string) => {
                                         <div>
                                             <label htmlFor="aadhar_number" className="block text-sm font-medium text-gray-700 mb-1">Aadhar Number <span className="text-xs text-gray-500">(Optional)</span></label>
                                             <input id="aadhar_number" name="aadhar_number" type="text" inputMode="numeric" pattern="\d{12}" title="Enter 12-digit Aadhar number" value={formData.aadhar_number} onChange={handleInputChange} placeholder="1234 5678 9012" className={inputClasses()} disabled={authLoading} />
-                                            <p className="text-xs text-gray-500 mt-1">12 digits. <span className='font-semibold text-orange-700'>Handled securely (Review RLS/Encryption).</span></p>
+                                            <p className="text-xs text-gray-500 mt-1">12 digits only. <span className='font-semibold text-orange-700'>Handle with care.</span></p>
                                         </div>
                                         <hr className="my-2 border-gray-200" />
                                     </>
                                 )}
-                                {/* Email Input */}
+                                {/* Email Input (Common to Login & Signup) */}
                                 <div>
                                     <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-                                    <input ref={emailInputRef} id="email" name="email" type="email" value={formData.email} onChange={handleInputChange} placeholder="you@example.com" className={inputClasses(feedback?.type === 'error' && !isSigningUp)} required disabled={authLoading} />
+                                    <input ref={emailInputRef} id="email" name="email" type="email" value={formData.email} onChange={handleInputChange} placeholder="you@example.com" className={inputClasses(feedback?.type === 'error' && !isSigningUp)} required disabled={authLoading} autoComplete="email" />
                                 </div>
-                                {/* Password Input */}
+                                {/* Password Input (Common to Login & Signup) */}
                                 <div>
                                     <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">Password</label>
-                                    <input id="password" name="password" type="password" value={formData.password} onChange={handleInputChange} placeholder={isSigningUp ? "Create a password (min. 6 chars)" : "••••••••"} className={inputClasses(feedback?.type === 'error')} required minLength={isSigningUp ? 6 : undefined} disabled={authLoading} />
+                                    <input id="password" name="password" type="password" value={formData.password} onChange={handleInputChange} placeholder={isSigningUp ? "Create a password (min. 6 chars)" : "••••••••"} className={inputClasses(feedback?.type === 'error')} required minLength={isSigningUp ? 6 : undefined} disabled={authLoading} autoComplete={isSigningUp ? "new-password" : "current-password"}/>
+                                    {/* Forgot Password Link (Login view only) */}
                                     {!isSigningUp && (
                                         <div className="text-right mt-1">
+                                            {/* TODO: Implement Password Reset functionality */}
                                             <button type="button" className="text-sm text-orange-600 hover:underline focus:outline-none" onClick={() => setFeedback({ type: 'info', text: 'Password reset functionality not implemented yet.' })}>
                                                 Forgot password?
                                             </button>
                                         </div>
                                     )}
                                 </div>
-                                {/* Submit Button */}
+                                {/* Submit Button (Dynamic Text) */}
                                 <button type="submit" disabled={authLoading} className="w-full bg-orange-600 text-white py-2.5 px-4 rounded-lg font-semibold hover:bg-orange-700 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2 transition-colors disabled:opacity-70 flex items-center justify-center">
                                     {authLoading && <Loader2 size={20} className="mr-2 animate-spin" />}
-                                    {!authLoading && isSigningUp && <UserPlus size={18} className="mr-2" />}
+                                    {!authLoading && isSigningUp && <UserPlus size={18} className="mr-2" />} {/* Icon for Signup */}
                                     {authLoading ? 'Processing...' : (isSigningUp ? 'Sign Up' : 'Log In')}
                                 </button>
                             </form>
@@ -815,7 +847,8 @@ const fetchPastOrders = async (userId: string) => {
                     )}
                 </div> {/* End Main Content Area */}
 
-                {/* --- Footer / Toggle Auth Mode (From Working Version) --- */}
+                {/* --- Footer Section (Toggle Auth Mode / Bottom Padding) --- */}
+                {/* Show toggle only when logged out and auth isn't processing */}
                 {!authLoading && !currentUser && (
                     <div className="p-4 border-t border-gray-200 text-center flex-shrink-0">
                         <button onClick={toggleAuthMode} disabled={authLoading} className="text-sm text-orange-600 hover:underline focus:outline-none disabled:opacity-50">
@@ -823,7 +856,8 @@ const fetchPastOrders = async (userId: string) => {
                         </button>
                     </div>
                 )}
-                <div className="flex-shrink-0 h-4 bg-white"></div> {/* Bottom padding */}
+                {/* Extra padding at the bottom inside the sidebar */}
+                <div className="flex-shrink-0 h-4 bg-white"></div>
             </div> {/* End Sidebar Panel */}
         </>
     );

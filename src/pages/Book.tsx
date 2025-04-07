@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react'; // Added useRef
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../supabase';
 
-// --- Reusable Green Checkmark Component --- (Keep as is)
+// --- Reusable Green Checkmark Component ---
 const GreenCheckmark = () => (
     <svg
       className="w-20 h-20 sm:w-24 sm:h-24 text-green-500"
@@ -13,7 +13,7 @@ const GreenCheckmark = () => (
     </svg>
 );
 
-// --- Simple Prompt Component --- (Keep as is)
+// --- Simple Prompt Component ---
 const PleaseLoginPrompt = () => {
     const handleOpenSidebar = () => {
         const event = new CustomEvent('openLoginSidebar');
@@ -43,9 +43,8 @@ const PleaseLoginPrompt = () => {
 // --- Main Booking Component ---
 const Book = () => {
     const navigate = useNavigate();
-    const formRef = useRef<HTMLFormElement>(null); // Ref for the form element
 
-    // --- State --- (Keep existing state variables)
+    // --- State ---
     const [bookingData, setBookingData] = useState({
         name: '', phone: '', email: '', pickupLocationType: '', pickupAddress: '',
         dropLocationType: '', dropAddress: '', pickupDate: '', pickupTime: '',
@@ -62,45 +61,38 @@ const Book = () => {
     const [isAuthenticated, setIsAuthenticated] = useState(false);
     const [isSubmitSuccess, setIsSubmitSuccess] = useState(false);
 
-    // --- Authentication Check --- (Keep as is)
+    // --- Authentication Check ---
     useEffect(() => {
         let isMounted = true;
-
+        // ... (rest of the useEffect for auth remains the same) ...
         const checkUserSession = async () => {
             try {
                 const { data: { session }, error } = await supabase.auth.getSession();
                 if (!isMounted) return;
                 if (error) {
-                    console.error("Error checking Supabase session:", error.message);
-                    setIsAuthenticated(false);
+                    console.error("Error checking Supabase session:", error.message); setIsAuthenticated(false);
+                } else if (!session) {
+                     console.log("User not authenticated."); setIsAuthenticated(false);
                 } else {
-                    setIsAuthenticated(!!session);
-                    if (session) {
-                         console.log("User authenticated.");
-                         setBookingData(prev => ({
-                            ...prev,
-                            email: prev.email || session.user?.email || '',
-                            name: prev.name || session.user?.user_metadata?.full_name || ''
-                        }));
-                    } else {
-                        console.log("User not authenticated.");
-                    }
+                    console.log("User authenticated."); setIsAuthenticated(true);
+                    setBookingData(prev => ({
+                        ...prev,
+                        email: prev.email || session.user?.email || '',
+                        name: prev.name || session.user?.user_metadata?.full_name || ''
+                    }));
                 }
             } catch (err) {
                  if (!isMounted) return;
-                 console.error("Unexpected error during auth check:", err);
-                 setIsAuthenticated(false);
+                 console.error("Unexpected error during auth check:", err); setIsAuthenticated(false);
             } finally {
-                if (isMounted) {
-                   setIsLoadingAuth(false);
-                }
+                if (isMounted) setIsLoadingAuth(false);
             }
         };
 
         checkUserSession();
 
         const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
-            if (isMounted) { // Removed !isLoadingAuth check as session change should always update state
+            if (isMounted && !isLoadingAuth) {
                  const currentlyAuth = !!session;
                  if (currentlyAuth !== isAuthenticated) {
                     console.log(`Auth state changed: User is now ${currentlyAuth ? 'authenticated' : 'not authenticated'}. Updating UI.`);
@@ -120,9 +112,10 @@ const Book = () => {
             isMounted = false;
             authListener?.subscription.unsubscribe();
         };
-    }, [navigate, isAuthenticated]); // Removed isLoadingAuth from dependencies here
+    }, [navigate, isLoadingAuth, isAuthenticated]);
 
-    // --- Get Current Date and Time for Min Values --- (Keep as is)
+
+    // --- Get Current Date and Time for Min Values ---
     const getMinDateTime = useCallback(() => {
         const now = new Date();
         const today = now.toISOString().split('T')[0];
@@ -133,8 +126,8 @@ const Book = () => {
     const { minDate, minTimeForToday } = getMinDateTime();
 
 
-    // --- Validation Function --- (Keep as is)
-     const validateForm = useCallback((): boolean => {
+    // --- Validation Function ---
+    const validateForm = useCallback((): boolean => {
         const newErrors: Record<string, string> = {};
         const data = bookingData;
 
@@ -176,47 +169,42 @@ const Book = () => {
         if (isNaN(bags) || bags <= 0) newErrors.numberOfBags = 'Enter a valid number of bags (1 or more)';
         if (!data.weightCategory) newErrors.weightCategory = 'Select a weight category';
 
-        // 5. Pricing & Payment
+        // 5. Pricing & Payment (Assuming Section 4 was a typo)
         if (!data.serviceType) newErrors.serviceType = 'Select a service type';
         if (!data.paymentMode) newErrors.paymentMode = 'Select a payment mode';
 
         setErrors(newErrors); // Update errors state
         return Object.keys(newErrors).length === 0;
-    }, [bookingData, minDate, minTimeForToday]);
+    }, [bookingData, minDate, minTimeForToday]); // Dependencies include bookingData
 
 
     // --- Handle Change ---
-    // *** MODIFIED: Attempt to blur time input after change ***
     const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
         const { name, value, type } = e.target;
 
+        // Handle checkbox separately
         if (type === 'checkbox') {
             const { checked } = e.target as HTMLInputElement;
             setBookingData(prevData => ({ ...prevData, [name]: checked }));
         } else {
             setBookingData(prevData => ({ ...prevData, [name]: value }));
-
-            // --- Attempt to close time picker ---
-            // If the changed input was the time input, blur it.
-            // This *might* close the native time picker UI, but behavior varies by browser.
-            if (name === 'pickupTime' && value) { // Check if value is set
-                e.target.blur();
-            }
-            // --- End of time picker modification ---
         }
 
-        // Clear the specific error for this field if it exists
+        // Clear error for the field being changed (if it exists)
         setErrors(prevErrors => {
-            if (!prevErrors[name]) return prevErrors; // No error existed, no change needed
-            const updatedErrors = { ...prevErrors };
-            delete updatedErrors[name]; // Remove the error for this specific field
-            return updatedErrors;
+            // Only create a new object if the error needs to be removed
+            if (prevErrors[name]) {
+                const updatedErrors = { ...prevErrors };
+                delete updatedErrors[name];
+                return updatedErrors;
+            }
+            // Otherwise, return the original errors object (optimization)
+            return prevErrors;
         });
-    }, []); // Dependency array remains empty as it relies on event data
+    }, []); // No dependencies needed if it only uses e.target
 
-    // --- Handle PNR Fetch (Placeholder) --- (Keep as is)
+    // --- Handle PNR Fetch (Placeholder) ---
     const handlePnrFetch = useCallback(async () => {
-        // ... (PNR fetch logic remains the same) ...
         if (!bookingData.pnrNumber || !/^\d{10}$/.test(bookingData.pnrNumber)) {
             setErrors(prev => ({...prev, pnrNumber: 'Enter a valid 10-digit PNR to fetch details'}));
             return;
@@ -226,63 +214,35 @@ const Book = () => {
 
 
     // --- Handle Submit ---
-    // *** MODIFIED: Scroll to first error on validation fail ***
     const handleSubmit = useCallback(async (e: React.FormEvent) => {
-        e.preventDefault();
+        e.preventDefault(); // Prevent default form submission
+
         if (!isAuthenticated) {
              setSubmitError("You must be logged in to submit a booking.");
-             // Maybe trigger login prompt again?
-             const event = new CustomEvent('openLoginSidebar');
-             window.dispatchEvent(event);
+             // Optionally, trigger the login sidebar here too if desired
+             // const event = new CustomEvent('openLoginSidebar');
+             // window.dispatchEvent(event);
              return;
         }
 
-        setSubmitError(null);
-        setIsSubmitSuccess(false);
+        setSubmitError(null);      // Clear previous submission errors
+        setIsSubmitSuccess(false); // Reset success state
 
-        // --- MODIFICATION START: Scroll to error ---
-        if (!validateForm()) { // validateForm now updates the errors state directly
-            console.log("Validation failed", errors); // Log the current errors state
-            setSubmitError("Please fix the errors marked in red below."); // More specific message
+        // --- Run Validation ---
+        // Note: validateForm now also updates the `errors` state internally
+        const isFormValid = validateForm();
 
-            // Find the first element with an error
-            const errorKeys = Object.keys(errors);
-            if (errorKeys.length > 0) {
-                const firstErrorKey = errorKeys[0];
-                 // Use querySelector for potentially nested elements if needed, but getElementById is fine here
-                const element = document.getElementById(firstErrorKey);
+        if (isFormValid) {
+            // --- Validation Passed: Proceed with Submission ---
+            setIsSubmitting(true);
+            try {
+                 const { data: { user } } = await supabase.auth.getUser();
+                 if (!user) {
+                     throw new Error("Authentication session lost. Please log in again.");
+                 }
 
-                if (element) {
-                    // Scroll the element into view
-                    element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-
-                    // Optionally focus the element (might cause screen jump on some browsers after scroll)
-                    // Use setTimeout to allow scroll to finish before focusing
-                    setTimeout(() => {
-                         element.focus({ preventScroll: true }); // preventScroll helps avoid layout shifts after manual scroll
-                    }, 300); // Adjust timeout if needed
-                } else {
-                    console.warn(`Could not find element with ID: ${firstErrorKey} to scroll/focus.`);
-                     // Fallback: scroll form container into view if specific element not found
-                     formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start'});
-                }
-            } else {
-                 // Should not happen if validateForm returned false, but good practice
-                 formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start'});
-            }
-            return; // Stop submission
-        }
-        // --- MODIFICATION END ---
-
-        // --- Submission logic (if validation passes) ---
-        setIsSubmitting(true);
-        try {
-             const { data: { user } } = await supabase.auth.getUser();
-             if (!user) {
-                 throw new Error("Authentication session lost. Please log in again.");
-             }
-
-            const dataToSubmit = { /* ... (keep data mapping as is) ... */
+                // Prepare data object for Supabase
+                const dataToSubmit = {
                     user_id: user.id,
                     name: bookingData.name.trim(),
                     phone: bookingData.phone.trim(),
@@ -305,58 +265,98 @@ const Book = () => {
                     insurance_requested: bookingData.insuranceRequested,
                     service_type: bookingData.serviceType,
                     payment_mode: bookingData.paymentMode,
-                    booking_status: 'Pending',
-            };
+                    booking_status: 'Pending', // Default status
+                    // estimated_cost: 0, // Consider calculating or setting later
+                };
 
-            console.log("Submitting to Supabase:", dataToSubmit);
+                console.log("Submitting to Supabase:", dataToSubmit);
 
-            const { error } = await supabase
-                .from('bookings')
-                .insert([dataToSubmit]);
+                // Insert data into Supabase 'bookings' table
+                const { error: insertError } = await supabase
+                    .from('bookings')
+                    .insert([dataToSubmit]);
 
-            if (error) {
-                console.error('Supabase booking insert error:', error);
-                setSubmitError(`Booking failed: ${error.message}. Please try again.`);
-                setIsSubmitting(false);
-                 formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start'}); // Scroll error into view
-            } else {
-                console.log('Booking successful!');
-                setIsSubmitSuccess(true); // Show success overlay
+                if (insertError) {
+                    console.error('Supabase booking insert error:', insertError);
+                    throw new Error(`Booking failed: ${insertError.message}. Please try again.`); // Throw to be caught below
+                } else {
+                    // --- Submission Successful ---
+                    console.log('Booking successful!');
+                    setIsSubmitSuccess(true); // Trigger success overlay
 
-                // Reset form after delay (consider clearing state immediately and only delaying the redirect/message clear)
-                 setTimeout(() => {
-                   setBookingData({ // Reset form fields
-                        name: '', phone: '', email: '', pickupLocationType: '', pickupAddress: '',
-                        dropLocationType: '', dropAddress: '', pickupDate: '', pickupTime: '',
-                        trainNumber: '', trainName: '', pnrNumber: '', coachNumber: '', seatNumber: '',
-                        deliveryPreference: '', numberOfBags: '1', weightCategory: '',
-                        specialItemsDescription: '', insuranceRequested: false, serviceType: '',
-                        paymentMode: '',
-                    });
-                    setErrors({});
-                    setSubmitError(null);
-                    setIsSubmitSuccess(false); // Hide success overlay after timeout
-                    setIsSubmitting(false);
-                    // navigate('/my-bookings'); // Optional redirect
-                }, 3000); // Keep success message visible for 3 seconds
+                    // Reset form after a short delay
+                    setTimeout(() => {
+                       setBookingData({ // Reset form fields
+                            name: '', phone: '', email: '', pickupLocationType: '', pickupAddress: '',
+                            dropLocationType: '', dropAddress: '', pickupDate: '', pickupTime: '',
+                            trainNumber: '', trainName: '', pnrNumber: '', coachNumber: '', seatNumber: '',
+                            deliveryPreference: '', numberOfBags: '1', weightCategory: '',
+                            specialItemsDescription: '', insuranceRequested: false, serviceType: '',
+                            paymentMode: '',
+                        });
+                        setErrors({});             // Clear validation errors
+                        setSubmitError(null);      // Clear submission error message
+                        setIsSubmitSuccess(false); // Hide success overlay
+                        setIsSubmitting(false);    // Re-enable submit button
+                        // Optional: Redirect user after success
+                        // navigate('/my-bookings');
+                    }, 3000); // 3-second delay for success message visibility
+                }
+            } catch (err: any) {
+                // --- Handle Errors during Submission Process ---
+                console.error('Error during submission process:', err);
+                setSubmitError(err.message || 'An unexpected error occurred during booking.');
+                setIsSubmitting(false); // Ensure submitting state is reset on error
             }
-        } catch (err: any) {
-            console.error('Error during submission process:', err);
-            setSubmitError(err.message || 'An unexpected error occurred.');
-            setIsSubmitting(false);
-            formRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start'}); // Scroll error into view
-        }
+        } else {
+            // --- Validation Failed ---
+            console.log("Validation failed. Errors:", errors); // Log the actual errors object set by validateForm
+            setSubmitError("Please fix the errors marked in the form before submitting."); // Set general error message
 
-    }, [bookingData, validateForm, navigate, isAuthenticated, errors]); // Add 'errors' to dependency array for handleSubmit
+            // --- Scroll to the first error ---
+            // Get the keys of the current errors state
+            const errorKeys = Object.keys(errors);
+            if (errorKeys.length > 0) {
+                const firstErrorKey = errorKeys[0];
+                const elementToFocus = document.getElementById(firstErrorKey);
+
+                if (elementToFocus) {
+                    // Focus the element first (helps screen readers, often triggers browser's own scroll)
+                    // Use preventScroll: true because we want to control the scroll smoothly ourselves.
+                    elementToFocus.focus({ preventScroll: true });
+
+                    // Then, smoothly scroll the element into view, centered if possible.
+                    elementToFocus.scrollIntoView({
+                        behavior: 'smooth', // Use smooth scrolling
+                        block: 'center',    // Try to align vertically in the center
+                        inline: 'nearest'   // Align horizontally as needed
+                    });
+
+                    console.log(`Scrolled to the first error field: #${firstErrorKey}`);
+                } else {
+                    console.warn(`Could not find element with ID: #${firstErrorKey} to scroll to.`);
+                }
+            }
+            // No need to set isSubmitting(false) here, as it wasn't set to true yet
+        }
+    }, [
+        bookingData, // Depends on current form data
+        errors, // Depends on current errors (for scrolling logic)
+        validateForm, // The validation function itself
+        navigate, // For potential redirection
+        isAuthenticated // To check auth status
+    ]); // Added `errors` to dependencies for the scrolling logic
+
 
     // --- Render Logic ---
 
-    // 1. Loading state (Keep as is)
+    // 1. Loading state
     if (isLoadingAuth) {
-        return ( /* ... Loading Spinner ... */
+        return (
           <div className="flex justify-center items-center min-h-screen bg-gray-50">
             <div className="text-center">
-                 <svg className="animate-spin h-10 w-10 text-[#ff8c00] mx-auto mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                 <svg className="animate-spin h-10 w-10 text-[#ff8c00] mx-auto mb-4" /* ... */ >
+                    {/* ... spinner SVG paths ... */}
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                  </svg>
@@ -366,35 +366,35 @@ const Book = () => {
         );
     }
 
-    // 2. Not authenticated -> Show Prompt (Keep as is)
+    // 2. Not authenticated -> Show Prompt
     if (!isAuthenticated) {
         return <PleaseLoginPrompt />;
     }
 
-    // 3. Submission Success Overlay (Keep as is)
+    // 3. Submission Success Overlay
     if (isSubmitSuccess) {
-        return ( /* ... Success Overlay ... */
+        return (
           <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-green-50 text-center p-4">
              <GreenCheckmark />
             <h2 className="mt-6 text-2xl sm:text-3xl font-bold text-green-700">Booking Confirmed!</h2>
             <p className="mt-2 text-lg text-gray-600">Your BagEase booking is successful. Check your bookings page for details.</p>
+             {/* <button onClick={() => navigate('/my-bookings')} className="mt-4 px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">View My Bookings</button> */}
           </div>
         );
     }
 
     // 4. Authenticated, show the form
-    // *** commonInputProps modified slightly to ensure ID is present ***
-     const commonInputProps = (name: keyof typeof bookingData, isRequired = true) => ({
-         id: name, // Ensure ID is always the field name
+    const commonInputProps = (name: keyof typeof bookingData, isRequired = true) => ({
+         id: name, // Crucial for the scroll-to-error functionality
         name: name,
         onChange: handleChange,
-        className: `mt-1 block w-full px-3 py-2 bg-white border ${errors[name] ? 'border-red-500 focus:ring-red-500 focus:border-red-500' : 'border-gray-300 focus:ring-[#ff8c00] focus:border-[#ff8c00]'} rounded-md shadow-sm focus:outline-none focus:ring-1 sm:text-sm disabled:bg-gray-100 disabled:cursor-not-allowed`, // Added focus styles for error state
+        className: `mt-1 block w-full px-3 py-2 bg-white border ${errors[name] ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm focus:outline-none focus:ring-1 focus:ring-[#ff8c00] focus:border-[#ff8c00] sm:text-sm disabled:bg-gray-100 disabled:cursor-not-allowed`,
         disabled: isSubmitting,
         'aria-invalid': errors[name] ? "true" : "false",
+        // Link error message to input for accessibility
         'aria-describedby': errors[name] ? `${name}-error` : undefined,
-         // Add required attribute for HTML5 validation hints (optional but good practice)
-         // Note: Our JS validation is primary, but this helps accessibility/browser hints
-         required: isRequired
+        // Add required attribute for browser built-in hints (optional but good practice)
+        // required: isRequired, // Can uncomment if you want browser validation hints too
     });
 
     return (
@@ -407,12 +407,13 @@ const Book = () => {
                     Fill in the details below to arrange your baggage transfer.
                 </p>
 
-                {/* *** Added ref to the form element *** */}
-                <form ref={formRef} onSubmit={handleSubmit} noValidate className="bg-white p-6 sm:p-8 rounded-lg shadow-lg space-y-8">
+                {/* Use novalidate to prevent default browser validation UI, relying on ours */}
+                <form onSubmit={handleSubmit} noValidate className="bg-white p-6 sm:p-8 rounded-lg shadow-lg space-y-8">
                      {/* General Submission Error */}
                     {submitError && (
-                        <div className="p-3 bg-red-100 border-l-4 border-red-500 text-red-700 rounded-md text-sm" role="alert">
-                            <p className="font-bold">Booking Error</p> {/* Simplified title */}
+                        // Ensure this error display has an ID if you want to potentially scroll to it too
+                        <div id="submit-error-message" className="p-3 bg-red-100 border-l-4 border-red-500 text-red-700 rounded-md text-sm" role="alert">
+                            <p className="font-bold">Oops! Something went wrong.</p>
                             <p>{submitError}</p>
                         </div>
                     )}
@@ -426,6 +427,7 @@ const Book = () => {
                             <div>
                                 <label htmlFor="name" className="block text-sm font-medium text-gray-700">Full Name</label>
                                 <input type="text" {...commonInputProps('name', true)} value={bookingData.name} placeholder="e.g., Priya Sharma" autoComplete="name" />
+                                {/* Ensure error message ID matches aria-describedby */}
                                 {errors.name && <p id="name-error" className="mt-1 text-xs text-red-600">{errors.name}</p>}
                             </div>
                             <div>
@@ -501,10 +503,7 @@ const Book = () => {
                             </div>
                         </div>
 
-                         {/* ... Rest of the form sections (Train, Luggage, Payment) remain structurally the same ... */}
-                         {/* ... Make sure all inputs use commonInputProps and display errors similarly ... */}
-
-                         {/* Train Details */}
+                        {/* Train Details */}
                         <h3 className="text-md font-medium text-gray-700 pt-4 border-t border-gray-100 mt-4">Train Details (If Applicable)</h3>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                            <div>
@@ -515,18 +514,19 @@ const Book = () => {
                              <div>
                                 <label htmlFor="trainName" className="block text-sm font-medium text-gray-700">Train Name <span className="text-xs text-gray-500">(Optional)</span></label>
                                 <input type="text" {...commonInputProps('trainName', false)} value={bookingData.trainName} placeholder="e.g., Rajdhani Express" />
+                                {/* No error display needed for optional field */}
                             </div>
                         </div>
                          <div className="relative">
-                            <label htmlFor="pnrNumber" className="block text-sm font-medium text-gray-700">PNR Number <span className="text-xs text-gray-500">(Optional, 10 digits)</span></label>
+                            <label htmlFor="pnrNumber" className="block text-sm font-medium text-gray-700">PNR Number <span className="text-xs text-gray-500">(Optional)</span></label>
                             <input
                                 type="text"
-                                {...commonInputProps('pnrNumber', false)}
+                                {...commonInputProps('pnrNumber', false)} // PNR explicitly optional
                                 value={bookingData.pnrNumber}
                                 placeholder="10-digit PNR"
                                 maxLength={10}
-                                pattern="\d{10}" // HTML5 pattern validation hint
                             />
+                            {/* <button type="button" onClick={handlePnrFetch} ... >Fetch</button> */}
                             {errors.pnrNumber && <p id="pnrNumber-error" className="mt-1 text-xs text-red-600">{errors.pnrNumber}</p>}
                         </div>
 
@@ -569,11 +569,10 @@ const Book = () => {
                             </select>
                              {errors.deliveryPreference && <p id="deliveryPreference-error" className="mt-1 text-xs text-red-600">{errors.deliveryPreference}</p>}
                         </div>
-
                     </fieldset>
 
                     {/* === Section 3: Luggage Details === */}
-                     <fieldset className="space-y-6 border-t border-gray-200 pt-6">
+                    <fieldset className="space-y-6 border-t border-gray-200 pt-6">
                         <legend className="text-lg font-semibold text-gray-800 border-b border-gray-200 pb-2 mb-4">
                             3. Luggage Details
                         </legend>
@@ -602,6 +601,7 @@ const Book = () => {
                                 rows={3}
                                 placeholder="e.g., Fragile items inside, handle with care, contains electronics..."
                              ></textarea>
+                             {/* No error display needed for optional field */}
                         </div>
                         <div className="relative flex items-start">
                             <div className="flex items-center h-5">
@@ -616,10 +616,10 @@ const Book = () => {
                                 />
                            </div>
                             <div className="ml-3 text-sm">
-                                <label htmlFor="insuranceRequested" className="font-medium text-gray-700 cursor-pointer"> {/* Added cursor-pointer */}
+                                <label htmlFor="insuranceRequested" className="font-medium text-gray-700">
                                     Add Luggage Insurance?
                                 </label>
-                                <p className="text-xs text-gray-500">(Optional, charges may apply)</p>
+                                <p className="text-xs text-gray-500">(Optional, additional charges may apply based on declared value)</p>
                             </div>
                         </div>
                     </fieldset>
@@ -638,6 +638,8 @@ const Book = () => {
                             </select>
                              {errors.serviceType && <p id="serviceType-error" className="mt-1 text-xs text-red-600">{errors.serviceType}</p>}
                         </div>
+                        {/* Estimated Cost Placeholder (Maybe implement later) */}
+                        {/* <div className="p-3 bg-blue-50 border border-blue-200 rounded-md"> ... </div> */}
                         <div>
                             <label htmlFor="paymentMode" className="block text-sm font-medium text-gray-700">Preferred Payment Method</label>
                             <select {...commonInputProps('paymentMode', true)} value={bookingData.paymentMode}>
@@ -652,34 +654,30 @@ const Book = () => {
                         </div>
                     </fieldset>
 
-
                     {/* === Submit Button === */}
                     <div className="pt-5 border-t border-gray-200">
-                         {/* Display general error near submit button too if preferred */}
-                         {/* {submitError && !Object.keys(errors).length && ( ... )} */}
-
                         <button
                             type="submit"
                             className="group relative w-full flex justify-center py-3 px-4 border border-transparent text-base font-medium rounded-md text-white bg-[#ff8c00] hover:bg-[#e07b00] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#ff8c00] disabled:opacity-60 disabled:cursor-wait transition duration-150 ease-in-out"
                             disabled={isSubmitting || !isAuthenticated}
                         >
-                            {isSubmitting ? ( /* ... Spinner ... */
+                            {isSubmitting ? (
                                 <>
-                                    <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                    <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" /* ... */ >
+                                         {/* ... spinner SVG paths ... */}
                                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                                     </svg>
                                     Processing Booking...
                                 </>
                             ) : (
-                                'Confirm Booking' // Simplified button text
+                                'Confirm & Proceed to Payment' // Or 'Confirm Booking'
                             )}
                         </button>
                     </div>
 
-                     {/* --- Footer Info --- (Keep as is) */}
+                     {/* --- Footer Info --- */}
                      <div className="text-center text-xs text-gray-500 pt-4">
-                         {/* ... Footer links ... */}
                          <p>By clicking confirm, you agree to BagEase's <a href="/terms" target="_blank" rel="noopener noreferrer" className="text-[#ff8c00] hover:underline">Terms of Service</a> and <a href="/privacy" target="_blank" rel="noopener noreferrer" className="text-[#ff8c00] hover:underline">Privacy Policy</a>.</p>
                          <p className="mt-1">Need help? Call us at <a href="tel:+91XXXXXXXXXX" className="text-[#ff8c00] hover:underline">+91-XXX-XXXXXXX</a> or visit our Help Center.</p>
                      </div>

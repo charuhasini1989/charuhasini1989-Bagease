@@ -1,6 +1,7 @@
 // src/components/Sidebar.tsx
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Truck, MapPin, LogOut, ClipboardList, Loader2, AlertCircle, UserPlus } from 'lucide-react'; // Added UserPlus
+// Added Package, ListOrdered to the existing imports
+import { X, Truck, MapPin, LogOut, ClipboardList, Loader2, AlertCircle, UserPlus, Package, ListOrdered } from 'lucide-react';
 import { supabase } from '../supabase'; // Ensure this path is correct
 import { User, AuthError } from '@supabase/supabase-js';
 
@@ -20,16 +21,35 @@ interface FeedbackMessage {
 interface FormData {
     email: string;
     password: string;
-    full_name: string; // Added
-    phone: string;     // Added
-    date_of_birth: string; // Added (YYYY-MM-DD format)
-    aadhar_number: string; // Added - *** CAUTION: Handle securely! ***
+    full_name: string;
+    phone: string;
+    date_of_birth: string;
+    aadhar_number: string;
 }
+
+// --- NEW: Booking Data Type --- START
+// Match this with your 'bookings' table columns you need
+interface Booking {
+    id: number; // Or string if you use UUIDs for your booking IDs
+    created_at: string;
+    name: string;
+    phone: string;
+    pickup_address: string;
+    pickup_location_type: string;
+    drop_address: string;
+    drop_location_type: string;
+    booking_status: string; // e.g., 'Pending', 'Confirmed', 'In Transit', 'Delivered', 'Cancelled'
+    train_number?: string | null;
+    pnr_number?: string | null;
+    // Add any other fields from your 'bookings' table you want to display
+}
+// --- NEW: Booking Data Type --- END
+
 
 const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
   // --- State ---
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  // Replace loginData with comprehensive formData
+  // Keep existing formData state
   const [formData, setFormData] = useState<FormData>({
       email: '',
       password: '',
@@ -39,39 +59,70 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
       aadhar_number: '',
   });
   const [feedback, setFeedback] = useState<FeedbackMessage | null>(null);
-  const [loading, setLoading] = useState<boolean>(true);
+  const [loading, setLoading] = useState<boolean>(true); // Overall loading (auth primarily)
   const [isSigningUp, setIsSigningUp] = useState<boolean>(false);
   const [activeSection, setActiveSection] = useState<string>('');
   const emailInputRef = useRef<HTMLInputElement>(null);
   const nameInputRef = useRef<HTMLInputElement>(null); // Ref for name input
 
+  // --- NEW: State for Bookings --- START
+  const [userBookings, setUserBookings] = useState<Booking[]>([]);
+  const [latestBooking, setLatestBooking] = useState<Booking | null>(null); // For quick access in some sections
+  const [isLoadingBookings, setIsLoadingBookings] = useState<boolean>(false);
+  const [fetchBookingsError, setFetchBookingsError] = useState<string | null>(null);
+  // Store the ID of the booking selected for detailed view (optional enhancement)
+  // const [selectedBookingId, setSelectedBookingId] = useState<number | null>(null);
+  // --- NEW: State for Bookings --- END
+
+
   // --- Listener for Auth State Changes (Supabase) ---
   useEffect(() => {
     setLoading(true);
+    // --- Keep existing initial session check --- START
     supabase.auth.getSession().then(({ data: { session }, error }) => {
       if (error) console.error("Error getting initial session:", error.message);
-      setCurrentUser(session?.user ?? null);
-      if (!session?.user) {
+      const initialUser = session?.user ?? null;
+      setCurrentUser(initialUser);
+      if (!initialUser) {
          resetAuthState(false); // Reset if no user initially
+      } else {
+          // --- NEW: Fetch initial bookings if user is already logged in --- START
+          fetchUserBookings(initialUser.id); // Fetch bookings for existing session
+          // --- NEW: Fetch initial bookings if user is already logged in --- END
       }
-      setLoading(false);
+      setLoading(false); // Indicate initial auth check is done
     });
+    // --- Keep existing initial session check --- END
 
     const { data: authListener } = supabase.auth.onAuthStateChange(
       (event, session) => {
         const user = session?.user ?? null;
+        const previousUser = currentUser; // Capture previous state for comparison
         setCurrentUser(user);
-        setLoading(false); // Stop loading after state change is processed
+        // setLoading(false) moved to initial check, listener handles subsequent changes
 
         if (event === 'SIGNED_OUT' || !user) {
-          resetAuthState(); // Reset state completely on sign out
-        }
-        if (event === 'SIGNED_IN') {
+          resetAuthState(); // This now also clears booking state
+          // Explicitly ensure section is cleared on logout
+          setActiveSection('');
+        } else if (event === 'SIGNED_IN') {
             setFeedback(null);
             // Clear form data on successful sign-in (handled by resetAuthState called by listener?)
             // Let's explicitly clear here too for safety, in case resetAuthState wasn't called
              setFormData({ email: '', password: '', full_name: '', phone: '', date_of_birth: '', aadhar_number: '' });
              setIsSigningUp(false); // Ensure we are in login mode view after sign in
+
+             // --- NEW: Fetch bookings when user signs in (or if user changed) --- START
+             // Check if it's a new login OR if the user ID has actually changed
+             if (user && user.id !== previousUser?.id) {
+                 console.log("User signed in or changed, fetching bookings...");
+                 fetchUserBookings(user.id);
+             } else if (user && !previousUser) {
+                 // This covers the case where the initial load didn't have a user, but now we do
+                 console.log("User signed in (was null initially), fetching bookings...");
+                 fetchUserBookings(user.id);
+             }
+             // --- NEW: Fetch bookings when user signs in (or if user changed) --- END
         }
       }
     );
@@ -79,19 +130,27 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
     return () => {
       authListener?.subscription.unsubscribe();
     };
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // currentUser REMOVED from deps array as it's handled internally to prevent loop issues
 
-  // Helper to reset state (now resets formData)
+  // Helper to reset state (now resets formData AND booking state)
   const resetAuthState = (clearFeedback = true) => {
       setActiveSection('');
       // Reset the comprehensive formData state
       setFormData({ email: '', password: '', full_name: '', phone: '', date_of_birth: '', aadhar_number: '' });
       if (clearFeedback) setFeedback(null);
       setIsSigningUp(false); // Default to login mode
+      // --- NEW: Also clear booking data on reset --- START
+      setUserBookings([]);
+      setLatestBooking(null);
+      setFetchBookingsError(null);
+      setIsLoadingBookings(false); // Ensure booking loading state is reset
+      // --- NEW: Also clear booking data on reset --- END
   }
 
   // --- Body Scroll Lock ---
   useEffect(() => {
+    // --- Keep existing scroll lock logic --- START
     if (isOpen) {
       document.body.style.overflow = 'hidden';
     } else {
@@ -100,18 +159,21 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
     return () => {
       document.body.style.overflow = 'unset';
     };
+    // --- Keep existing scroll lock logic --- END
   }, [isOpen]);
 
    // --- Input Change Handler (Updates formData) ---
    const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        // --- Keep existing input change logic --- START
         const { name, value } = e.target;
         setFormData(prev => ({ ...prev, [name]: value }));
+        // --- Keep existing input change logic --- END
    };
 
 
   // --- Map Supabase Errors ---
-  // (This function remains mostly the same as it already handles the switch to signup)
    const getFriendlyErrorMessage = (error: AuthError | Error | any): { type: 'error' | 'info', text: string } => {
+       // --- Keep existing error mapping logic --- START
        let message = "An unexpected error occurred. Please try again.";
        let type: 'error' | 'info' = 'error';
        if (!error) return { type, text: message };
@@ -160,125 +222,129 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
             type = 'error'; // Assume other errors are actual errors
        }
        return { type, text: message };
+       // --- Keep existing error mapping logic --- END
    };
 
   // --- Authentication Handler (Supabase) ---
   const handleAuth = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    setFeedback(null);
-    setLoading(true);
-    const currentFormData = { ...formData }; // Capture current state for use after async ops
+      // --- Keep existing authentication logic --- START
+      e.preventDefault();
+      setFeedback(null);
+      setLoading(true);
+      const currentFormData = { ...formData }; // Capture current state for use after async ops
 
-    try {
-      if (isSigningUp) {
-        // --- Sign Up ---
-        // Basic Client-Side Validation (Example)
-        if (!currentFormData.full_name) throw new Error("Full name is required for signup.");
-        if (currentFormData.password.length < 6) throw new Error("Password must be at least 6 characters.");
-        // Add more validations as needed (phone, dob, aadhar format) before hitting Supabase
+      try {
+        if (isSigningUp) {
+          // --- Sign Up ---
+          // Basic Client-Side Validation (Example)
+          if (!currentFormData.full_name) throw new Error("Full name is required for signup.");
+          if (currentFormData.password.length < 6) throw new Error("Password must be at least 6 characters.");
+          // Add more validations as needed (phone, dob, aadhar format) before hitting Supabase
 
-        const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
-          email: currentFormData.email,
-          password: currentFormData.password,
-        });
+          const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+            email: currentFormData.email,
+            password: currentFormData.password,
+          });
 
-        console.log('Supabase signUp response:', signUpData);
-        if (signUpError) throw signUpError; // Throw auth errors to be handled by catch block
+          console.log('Supabase signUp response:', signUpData);
+          if (signUpError) throw signUpError; // Throw auth errors to be handled by catch block
 
-        // Check if user object exists (it should if no error)
-        if (!signUpData.user) {
-            throw new Error("Signup seemed successful but user data is missing.");
-        }
+          // Check if user object exists (it should if no error)
+          if (!signUpData.user) {
+              throw new Error("Signup seemed successful but user data is missing.");
+          }
 
-        console.log('Auth signup successful for:', signUpData.user.email);
+          console.log('Auth signup successful for:', signUpData.user.email);
 
-        // --- Insert Profile Data after successful signup ---
-        try {
-            console.log('Attempting to insert profile for user:', signUpData.user.id);
-            // *** WARNING: Storing Aadhar number plaintext here. Implement encryption! ***
-            const { error: profileError } = await supabase
-                .from('profiles') // <<<--- YOUR SUPABASE TABLE NAME HERE
-                .insert({
-                    id: signUpData.user.id, // Link to the auth user
-                    email: signUpData.user.email, // Optional: store email in profile too
-                    full_name: currentFormData.full_name,
-                    phone: currentFormData.phone || null, // Store null if empty string
-                    date_of_birth: currentFormData.date_of_birth || null, // Store null if empty
-                    aadhar_number: currentFormData.aadhar_number || null, // *** ENCRYPT THIS VALUE *** Store null if empty
-                    created_at: new Date().toISOString(), // Add created_at timestamp
-                    updated_at: new Date().toISOString(), // Add updated_at timestamp
-                });
+          // --- Insert Profile Data after successful signup ---
+          try {
+              console.log('Attempting to insert profile for user:', signUpData.user.id);
+              // *** WARNING: Storing Aadhar number plaintext here. Implement encryption! ***
+              const { error: profileError } = await supabase
+                  .from('profiles') // <<<--- YOUR SUPABASE TABLE NAME HERE
+                  .insert({
+                      id: signUpData.user.id, // Link to the auth user
+                      email: signUpData.user.email, // Optional: store email in profile too
+                      full_name: currentFormData.full_name,
+                      phone: currentFormData.phone || null, // Store null if empty string
+                      date_of_birth: currentFormData.date_of_birth || null, // Store null if empty
+                      aadhar_number: currentFormData.aadhar_number || null, // *** ENCRYPT THIS VALUE *** Store null if empty
+                      created_at: new Date().toISOString(), // Add created_at timestamp
+                      updated_at: new Date().toISOString(), // Add updated_at timestamp
+                  });
 
-            if (profileError) {
-                // Log the profile error but let the user know signup part worked
-                console.error('Error creating Supabase profile after signup:', profileError.message);
-                // Decide how to handle this: inform user profile failed?
-                 // For now, proceed but maybe show a non-blocking warning later?
-                 setFeedback({ type: 'info', text: `Account created for ${signUpData.user.email}, but profile details couldn't be saved. You can update them later.`});
-            } else {
-                console.log('Supabase profile created successfully.');
-            }
-        } catch (profileInsertError: any) {
-            // Catch unexpected errors during profile insert
-            console.error('Exception during profile creation:', profileInsertError.message);
-             setFeedback({ type: 'info', text: `Account created for ${signUpData.user.email}, but profile details couldn't be saved due to an error.`});
-        }
-
-
-        // Check if email verification is needed (session is null)
-        if (!signUpData.session) {
-            // Don't override profile error feedback if it happened
-            if (!feedback) { // Only set this if no profile error occurred
-                 setFeedback({ type: 'success', text: 'Account created! Check your email (including spam) for a confirmation link to log in.' });
-            }
-             setIsSigningUp(false); // Switch back to login view
-             // Clear sensitive fields, keep email
-             setFormData(prev => ({ ...prev, password: '', full_name: '', phone: '', date_of_birth: '', aadhar_number: '' }));
-             setLoading(false); // Stop loading here as auth listener won't fire yet
-        } else {
-             // User is signed up AND logged in (auto-confirmation or verification disabled)
-             // Auth listener `onAuthStateChange` (SIGNED_IN) will handle UI update and state reset.
-             // Feedback might be briefly shown then cleared by listener.
-              if (!feedback) { // Only set this if no profile error occurred
-                  setFeedback({ type: 'success', text: 'Account created successfully!' });
+              if (profileError) {
+                  // Log the profile error but let the user know signup part worked
+                  console.error('Error creating Supabase profile after signup:', profileError.message);
+                  // Decide how to handle this: inform user profile failed?
+                   // For now, proceed but maybe show a non-blocking warning later?
+                   setFeedback({ type: 'info', text: `Account created for ${signUpData.user.email}, but profile details couldn't be saved. You can update them later.`});
+              } else {
+                  console.log('Supabase profile created successfully.');
               }
-             // setLoading(false) will be handled by the auth listener
+          } catch (profileInsertError: any) {
+              // Catch unexpected errors during profile insert
+              console.error('Exception during profile creation:', profileInsertError.message);
+               setFeedback({ type: 'info', text: `Account created for ${signUpData.user.email}, but profile details couldn't be saved due to an error.`});
+          }
+
+
+          // Check if email verification is needed (session is null)
+          if (!signUpData.session) {
+              // Don't override profile error feedback if it happened
+              if (!feedback) { // Only set this if no profile error occurred
+                   setFeedback({ type: 'success', text: 'Account created! Check your email (including spam) for a confirmation link to log in.' });
+              }
+               setIsSigningUp(false); // Switch back to login view
+               // Clear sensitive fields, keep email
+               setFormData(prev => ({ ...prev, password: '', full_name: '', phone: '', date_of_birth: '', aadhar_number: '' }));
+               setLoading(false); // Stop loading here as auth listener won't fire yet
+          } else {
+               // User is signed up AND logged in (auto-confirmation or verification disabled)
+               // Auth listener `onAuthStateChange` (SIGNED_IN) will handle UI update and state reset.
+               // Feedback might be briefly shown then cleared by listener.
+                if (!feedback) { // Only set this if no profile error occurred
+                    setFeedback({ type: 'success', text: 'Account created successfully!' });
+                }
+               // setLoading(false) will be handled by the auth listener
+          }
+
+        } else {
+          // --- Log In ---
+          const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+            email: currentFormData.email,
+            password: currentFormData.password,
+          });
+
+          console.log('Supabase signIn response:', signInData);
+          if (signInError) throw signInError; // Let catch block handle login errors
+
+          console.log('Logged in:', signInData.user?.email);
+          // setLoading(false) and state reset handled by auth listener for SIGNED_IN
         }
 
-      } else {
-        // --- Log In ---
-        const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-          email: currentFormData.email,
-          password: currentFormData.password,
-        });
-
-        console.log('Supabase signIn response:', signInData);
-        if (signInError) throw signInError; // Let catch block handle login errors
-
-        console.log('Logged in:', signInData.user?.email);
-        // setLoading(false) and state reset handled by auth listener for SIGNED_IN
+      } catch (error: any) {
+        // Catch errors from signInWithPassword, signUp, or manually thrown errors
+        const feedbackMessage = getFriendlyErrorMessage(error); // This might switch mode to signup
+        setFeedback(feedbackMessage);
+        setLoading(false); // Stop loading on error
+        // Focus email field only if it was a login error and we didn't switch to signup
+        if (!isSigningUp && emailInputRef.current && feedbackMessage.type === 'error') {
+            emailInputRef.current.focus();
+            emailInputRef.current.select();
+        }
+         // If it was a signup error related to name (or another signup field)
+        if (isSigningUp && nameInputRef.current && error.message?.includes('name')) {
+             nameInputRef.current.focus();
+        }
       }
-
-    } catch (error: any) {
-      // Catch errors from signInWithPassword, signUp, or manually thrown errors
-      const feedbackMessage = getFriendlyErrorMessage(error); // This might switch mode to signup
-      setFeedback(feedbackMessage);
-      setLoading(false); // Stop loading on error
-      // Focus email field only if it was a login error and we didn't switch to signup
-      if (!isSigningUp && emailInputRef.current && feedbackMessage.type === 'error') {
-          emailInputRef.current.focus();
-          emailInputRef.current.select();
-      }
-       // If it was a signup error related to name (or another signup field)
-      if (isSigningUp && nameInputRef.current && error.message?.includes('name')) {
-           nameInputRef.current.focus();
-      }
-    }
-    // No finally block needed as loading is handled in success/error/listener paths
+      // No finally block needed as loading is handled in success/error/listener paths
+      // --- Keep existing authentication logic --- END
   };
 
   // --- Logout Handler (Supabase) ---
   const handleLogout = async () => {
+    // --- Keep existing logout logic --- START
     setLoading(true);
     setFeedback(null);
     const { error } = await supabase.auth.signOut();
@@ -288,10 +354,12 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
       setLoading(false);
     }
     // setLoading(false) and state reset handled by auth listener for SIGNED_OUT
+    // --- Keep existing logout logic --- END
   };
 
   // --- Toggle Signup/Login View ---
   const toggleAuthMode = () => {
+    // --- Keep existing toggle logic --- START
     const enteringSignupMode = !isSigningUp;
     setIsSigningUp(enteringSignupMode);
     // Reset form data but keep email if user already typed it
@@ -308,31 +376,126 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
             emailInputRef.current.focus();
         }
     }, 100);
+    // --- Keep existing toggle logic --- END
   }
 
   // --- Reusable Input Field Classes ---
   const inputClasses = (hasError: boolean = false) =>
+    // --- Keep existing input classes --- START
     `w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500 focus:border-transparent transition-colors ${
       hasError ? 'border-red-500 ring-red-500' : 'border-gray-300'
     } disabled:bg-gray-100 disabled:cursor-not-allowed`;
+    // --- Keep existing input classes --- END
+
+  // --- NEW: Function to Fetch User Bookings --- START
+  const fetchUserBookings = async (userId: string) => {
+      if (!userId) return; // Don't fetch if no user ID
+
+      setIsLoadingBookings(true);
+      setFetchBookingsError(null);
+      // Don't clear existing bookings immediately, maybe show stale data while loading?
+      // setUserBookings([]);
+      // setLatestBooking(null);
+
+      try {
+          console.log(`Fetching bookings for user: ${userId}`);
+          const { data, error } = await supabase
+              .from('bookings') // Make sure 'bookings' is your table name
+              .select(`
+                  id,
+                  created_at,
+                  name,
+                  phone,
+                  pickup_address,
+                  pickup_location_type,
+                  drop_address,
+                  drop_location_type,
+                  booking_status,
+                  train_number,
+                  pnr_number
+              `) // Select only the columns you need
+              .eq('user_id', userId)
+              .order('created_at', { ascending: false }); // Get the most recent first
+
+          if (error) {
+              console.error("Supabase fetch bookings error:", error);
+              // Check if the error is due to RLS or other access issues
+              if (error.message.includes("security rules") || error.message.includes("policy")) {
+                   throw new Error("You don't have permission to view bookings. Check RLS policies.");
+              }
+              throw new Error(error.message || "Database query failed");
+          }
+
+          console.log("Fetched bookings data:", data);
+
+          if (data) { // Check if data is not null/undefined
+              // Assuming the data structure matches the Booking interface
+              const fetchedBookings = data as Booking[];
+              setUserBookings(fetchedBookings); // Update with new data
+
+              if (fetchedBookings.length > 0) {
+                  setLatestBooking(fetchedBookings[0]); // The first one is the latest
+              } else {
+                  setLatestBooking(null); // No bookings found
+                  console.log("No bookings found for this user.");
+              }
+          } else {
+                // Handle case where data is null (less common but possible)
+                setUserBookings([]);
+                setLatestBooking(null);
+                console.log("No bookings data returned (data is null).");
+          }
+
+      } catch (err: any) {
+          console.error("Error in fetchUserBookings:", err);
+          setFetchBookingsError("Couldn't load your booking history. Please try again later.");
+          // Clear data on error
+          setUserBookings([]);
+          setLatestBooking(null);
+      } finally {
+          setIsLoadingBookings(false);
+      }
+  };
+  // --- NEW: Function to Fetch User Bookings --- END
+
+
+  // --- NEW: Helper function for Status Color (Optional) --- START
+  const getStatusColor = (status: string): string => {
+    status = status?.toLowerCase() || '';
+    switch (status) {
+        case 'pending': return 'text-yellow-600 bg-yellow-100';
+        case 'confirmed': return 'text-blue-600 bg-blue-100';
+        case 'in transit': return 'text-purple-600 bg-purple-100'; // Added generic 'in transit'
+        case 'out for delivery': return 'text-purple-600 bg-purple-100'; // Example status
+        case 'delivered': return 'text-green-600 bg-green-100';
+        case 'cancelled': return 'text-red-600 bg-red-100';
+        default: return 'text-gray-600 bg-gray-100'; // Default for unknown or null status
+    }
+  };
+  // --- NEW: Helper function for Status Color (Optional) --- END
 
   // --- Render Logic (JSX) ---
   return (
     <>
       {/* --- Overlay --- */}
       <div
+        // --- Keep existing overlay --- START
         onClick={loading ? undefined : onClose}
         className={`fixed inset-0 bg-black bg-opacity-60 backdrop-blur-sm transition-opacity duration-300 z-40 ${isOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}
         aria-hidden={!isOpen}
+        // --- Keep existing overlay --- END
       />
 
       {/* --- Sidebar Panel --- */}
       <div
+        // --- Keep existing sidebar panel --- START
         className={`fixed top-0 right-0 h-full w-full max-w-sm bg-white shadow-xl transform transition-transform duration-300 ease-in-out z-50 flex flex-col ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}
         role="dialog" aria-modal="true" aria-labelledby="sidebar-title"
+        // --- Keep existing sidebar panel --- END
       >
         {/* --- Header --- */}
         <div className="flex items-center justify-between p-4 border-b border-gray-200 flex-shrink-0">
+           {/* --- Keep existing header --- START */}
           <h2 id="sidebar-title" className="text-xl font-semibold text-gray-800">
             {loading && !currentUser ? 'Loading...' : (currentUser ? 'My Account' : (isSigningUp ? 'Create Account' : 'Log In'))}
           </h2>
@@ -344,6 +507,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
           >
             <X size={24} />
           </button>
+           {/* --- Keep existing header --- END */}
         </div>
 
         {/* --- Main Content Area (Scrollable) --- */}
@@ -351,6 +515,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
 
           {/* --- Feedback Display Area --- */}
           {feedback && (
+            // --- Keep existing feedback display --- START
              <div className={`mb-4 p-3 border rounded-md text-sm flex items-start ${
                  feedback.type === 'error' ? 'bg-red-50 border-red-300 text-red-800' :
                  feedback.type === 'success' ? 'bg-green-50 border-green-300 text-green-800' :
@@ -359,46 +524,175 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
                  <AlertCircle size={18} className="mr-2 flex-shrink-0 mt-0.5" /> {/* Using AlertCircle for all for simplicity */}
                  <span>{feedback.text}</span>
              </div>
+             // --- Keep existing feedback display --- END
            )}
 
           {/* --- Loading Indicator (Initial Load/Auth) --- */}
           {/* Show loader if loading AND not logged in AND not showing feedback */}
           {loading && !currentUser && !feedback && (
+            // --- Keep existing initial loader --- START
             <div className="flex justify-center items-center py-10">
                  <Loader2 size={32} className="animate-spin text-orange-600" />
             </div>
+            // --- Keep existing initial loader --- END
           )}
 
           {/* --- Logged In View --- */}
+          {/* Keep existing check: !loading && currentUser */}
           {!loading && currentUser ? (
             <div className="space-y-6">
-              {/* Welcome Message - Consider fetching profile name here later */}
+              {/* Welcome Message - Keep existing */}
               <p className="text-gray-600 truncate">Welcome, <span className='font-medium'>{currentUser.email}</span>!</p>
 
-              {/* Dashboard Navigation */}
+              {/* Dashboard Navigation - MODIFIED */}
               <nav className="space-y-2">
+                 {/* NEW: Order is changed and uses updated icons */}
+                 <button className={`flex items-center w-full px-4 py-3 rounded-lg text-left text-gray-700 hover:bg-orange-50 hover:text-orange-600 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-1 transition-colors ${activeSection === 'orders' ? 'bg-orange-100 text-orange-700 font-medium' : ''}`} onClick={() => setActiveSection('orders')}> <ListOrdered size={18} className="mr-3 flex-shrink-0" /> My Orders </button>
                  <button className={`flex items-center w-full px-4 py-3 rounded-lg text-left text-gray-700 hover:bg-orange-50 hover:text-orange-600 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-1 transition-colors ${activeSection === 'tracking' ? 'bg-orange-100 text-orange-700 font-medium' : ''}`} onClick={() => setActiveSection('tracking')}> <Truck size={18} className="mr-3 flex-shrink-0" /> Order Tracking </button>
                  <button className={`flex items-center w-full px-4 py-3 rounded-lg text-left text-gray-700 hover:bg-orange-50 hover:text-orange-600 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-1 transition-colors ${activeSection === 'delivery' ? 'bg-orange-100 text-orange-700 font-medium' : ''}`} onClick={() => setActiveSection('delivery')}> <MapPin size={18} className="mr-3 flex-shrink-0" /> Delivery Details </button>
-                 <button className={`flex items-center w-full px-4 py-3 rounded-lg text-left text-gray-700 hover:bg-orange-50 hover:text-orange-600 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-1 transition-colors ${activeSection === 'orders' ? 'bg-orange-100 text-orange-700 font-medium' : ''}`} onClick={() => setActiveSection('orders')}> <ClipboardList size={18} className="mr-3 flex-shrink-0" /> My Orders </button>
               </nav>
 
-              {/* Dashboard Content Display */}
-              <div className="mt-6 p-4 bg-gray-50 rounded-lg min-h-[100px]">
-                  {activeSection === 'tracking' && (<div><h3 className="text-lg font-semibold mb-2 text-gray-800">Order Tracking</h3><p className="text-sm text-gray-600">Tracking details here.</p></div>)}
-                  {activeSection === 'delivery' && (<div><h3 className="text-lg font-semibold mb-2 text-gray-800">Delivery Details</h3><p className="text-sm text-gray-600">Manage addresses here.</p></div>)}
-                  {activeSection === 'orders' && (<div><h3 className="text-lg font-semibold mb-2 text-gray-800">My Orders</h3><p className="text-sm text-gray-600">Order history here.</p></div>)}
-                  {!activeSection && (<p className="text-sm text-gray-500 text-center pt-4">Select an option.</p>)}
+              {/* Dashboard Content Display - REPLACED with new logic */}
+              <div className="mt-6 p-4 bg-gray-50 rounded-lg min-h-[150px]"> {/* Increased min-height slightly */}
+                  {/* --- NEW: Loading/Error/No Data States for Bookings --- START */}
+                  {isLoadingBookings && (
+                    <div className="flex justify-center items-center py-10 text-gray-600">
+                         <Loader2 size={24} className="animate-spin text-orange-600 mr-2" /> Loading bookings...
+                    </div>
+                  )}
+                  {fetchBookingsError && !isLoadingBookings && (
+                    <div className="text-center py-6 text-red-600">
+                        <AlertCircle className="mx-auto mb-2" size={30} />
+                        <p className="text-sm">{fetchBookingsError}</p>
+                        <button
+                            // Pass currentUser.id safely, only enabled when currentUser exists
+                            onClick={() => currentUser && fetchUserBookings(currentUser.id)}
+                            disabled={!currentUser || isLoadingBookings} // Disable if no user or already loading
+                            className="mt-3 px-3 py-1 text-sm bg-orange-100 text-orange-700 rounded hover:bg-orange-200 disabled:opacity-50"
+                        >
+                            Retry
+                        </button>
+                    </div>
+                  )}
+                  {/* Show "No bookings" only if not loading, no error, and array is empty */}
+                  {!isLoadingBookings && !fetchBookingsError && userBookings.length === 0 && (
+                    <div className="text-center py-10 text-gray-500">
+                       <Package size={30} className="mx-auto mb-2" /> {/* Package icon */}
+                        <p>You haven't placed any bookings yet.</p>
+                        {/* Optional: Add a button to navigate to the booking page */}
+                        {/* <button onClick={() => { navigate('/book'); onClose(); }} className="mt-3 text-sm text-orange-600 hover:underline">Book Now</button> */}
+                    </div>
+                  )}
+                  {/* --- NEW: Loading/Error/No Data States for Bookings --- END */}
+
+                  {/* --- NEW: Display Content based on Active Section if data is loaded --- START */}
+                  {/* Only attempt to render sections if NOT loading, NO error, AND there ARE bookings */}
+                  {!isLoadingBookings && !fetchBookingsError && userBookings.length > 0 && (
+                    <>
+                        {/* --- My Orders Section --- */}
+                        {activeSection === 'orders' && (
+                            <div>
+                                <h3 className="text-lg font-semibold mb-3 text-gray-800 border-b border-gray-200 pb-1">My Orders</h3>
+                                <ul className="space-y-3 max-h-[400px] overflow-y-auto pr-1"> {/* Limit height & allow scroll */}
+                                    {userBookings.map((booking) => (
+                                        <li key={booking.id} className="p-3 border rounded-md bg-white shadow-sm text-sm transition-shadow hover:shadow-md">
+                                            <div className="flex justify-between items-start mb-1">
+                                                <span className="font-medium text-gray-700">Booking #{booking.id}</span>
+                                                <span className={`px-2 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${getStatusColor(booking.booking_status)}`}>
+                                                    {booking.booking_status || 'Unknown'}
+                                                </span>
+                                            </div>
+                                            <p className="text-xs text-gray-500 mb-1">
+                                                Booked: {new Date(booking.created_at).toLocaleString()}
+                                            </p>
+                                            <p className="text-xs text-gray-600 truncate" title={`${booking.pickup_address} (${booking.pickup_location_type})`}>
+                                                <span className="font-medium">From:</span> {booking.pickup_address} ({booking.pickup_location_type})
+                                            </p>
+                                            <p className="text-xs text-gray-600 truncate" title={`${booking.drop_address} (${booking.drop_location_type})`}>
+                                                <span className="font-medium">To:</span> {booking.drop_address} ({booking.drop_location_type})
+                                            </p>
+                                            {/* Optional: Button to view more details / track this specific order */}
+                                            {/* <button onClick={() => { setActiveSection('tracking'); /* setSelectedBookingId(booking.id); */ }} className="text-xs text-orange-600 hover:underline mt-1">Track Order</button> */}
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+                        )}
+
+                        {/* --- Order Tracking Section --- */}
+                        {activeSection === 'tracking' && (
+                            <div>
+                                <h3 className="text-lg font-semibold mb-3 text-gray-800 border-b border-gray-200 pb-1">Order Tracking</h3>
+                                {/* Using latestBooking for simplicity */}
+                                {latestBooking ? (
+                                    <div className="space-y-2 text-sm">
+                                        <p>Tracking latest booking: <strong className='text-gray-700'>#{latestBooking.id}</strong></p>
+                                        <div className="flex items-center">
+                                            <span className="font-medium mr-2">Current Status: </span>
+                                            <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getStatusColor(latestBooking.booking_status)}`}>
+                                                {latestBooking.booking_status || 'Unknown'}
+                                            </span>
+                                        </div>
+                                        <p><span className="font-medium">Booked On:</span> {new Date(latestBooking.created_at).toLocaleDateString()}</p>
+                                        <p><span className="font-medium">Pickup:</span> {latestBooking.pickup_address}</p>
+                                        <p><span className="font-medium">Drop-off:</span> {latestBooking.drop_address}</p>
+                                        {/* Add more specific tracking steps if your backend provides them */}
+                                        <p className="mt-4 text-xs text-gray-500">Tracking details are based on the latest updates received.</p>
+                                    </div>
+                                ) : (
+                                    // This case should theoretically not be reached if userBookings.length > 0, but included for safety
+                                    <p className="text-sm text-gray-500 text-center pt-5">Could not load details for the latest booking.</p>
+                                )}
+                            </div>
+                        )}
+
+                         {/* --- Delivery Details Section --- */}
+                         {activeSection === 'delivery' && (
+                             <div>
+                                <h3 className="text-lg font-semibold mb-3 text-gray-800 border-b border-gray-200 pb-1">Delivery Details</h3>
+                                 {/* Using latestBooking for simplicity */}
+                                {latestBooking ? (
+                                    <div className="space-y-2 text-sm">
+                                       <p>Showing details for latest booking: <strong className='text-gray-700'>#{latestBooking.id}</strong></p>
+                                        <p><span className="font-medium">Recipient Name:</span> {latestBooking.name}</p>
+                                        <p><span className="font-medium">Recipient Phone:</span> {latestBooking.phone}</p>
+                                        <p><span className="font-medium">Drop-off Type:</span> {latestBooking.drop_location_type}</p>
+                                        <p><span className="font-medium">Drop-off Address:</span> {latestBooking.drop_address}</p>
+                                         {/* Optionally add PNR/Train if relevant and exist */}
+                                        {latestBooking.pnr_number && <p><span className="font-medium">PNR:</span> {latestBooking.pnr_number}</p>}
+                                        {latestBooking.train_number && <p><span className="font-medium">Train No:</span> {latestBooking.train_number}</p>}
+                                    </div>
+                                ) : (
+                                     // This case should theoretically not be reached if userBookings.length > 0, but included for safety
+                                    <p className="text-sm text-gray-500 text-center pt-5">Could not load delivery details for the latest booking.</p>
+                                )}
+                            </div>
+                        )}
+
+                        {/* --- Message when no section is selected --- */}
+                        {/* Show this only if NOT loading, NO error, there ARE bookings, but NO section is active */}
+                         {!activeSection && (
+                             <p className="text-sm text-gray-500 text-center pt-10">Select an option from the navigation above to view details.</p>
+                         )}
+                    </>
+                   )}
+                    {/* --- NEW: Display Content based on Active Section if data is loaded --- END */}
               </div>
 
-              {/* Logout Button */}
-              <button onClick={handleLogout} disabled={loading} className="flex items-center justify-center w-full px-4 py-2 mt-6 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-1 transition-colors disabled:opacity-50">
-                 {/* Show loader specifically for logout action */}
-                  {loading && !currentUser ? <Loader2 size={18} className="mr-2 animate-spin" /> : <LogOut size={18} className="mr-2" />}
-                  {loading && !currentUser ? 'Processing...' : 'Logout'}
+              {/* Logout Button - Keep existing structure, ensure disabled state considers general loading */}
+              <button
+                onClick={handleLogout}
+                // Disable if general loading (auth) OR booking loading is happening
+                disabled={loading || isLoadingBookings}
+                className="flex items-center justify-center w-full px-4 py-2 mt-6 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-1 transition-colors disabled:opacity-50 disabled:cursor-not-allowed" // Added disabled cursor
+               >
+                 {/* Show loader if general loading is true AND related to logout (currentUser becomes null) - Adjust logic if needed */}
+                  {(loading && !currentUser) || isLoadingBookings ? <Loader2 size={18} className="mr-2 animate-spin" /> : <LogOut size={18} className="mr-2" />}
+                  {(loading && !currentUser) || isLoadingBookings ? 'Processing...' : 'Logout'}
               </button>
             </div>
           ) : (
-            // --- Logged Out View (Login OR Signup Form) ---
+            // --- Logged Out View (Login OR Signup Form) --- Keep existing structure --- START
              !loading && !currentUser && (
                <form onSubmit={handleAuth} className="space-y-4">
 
@@ -483,10 +777,11 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
                  </button>
                </form>
             )
+            // --- Logged Out View (Login OR Signup Form) --- Keep existing structure --- END
           )}
         </div> {/* End Main Content Area */}
 
-        {/* --- Footer / Toggle Auth Mode --- */}
+        {/* --- Footer / Toggle Auth Mode --- Keep existing structure */}
         {/* Show toggle only when logged out and not loading */}
         {!loading && !currentUser && (
            <div className="p-4 border-t border-gray-200 text-center flex-shrink-0">

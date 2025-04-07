@@ -265,7 +265,7 @@ const Book = () => {
                     insurance_requested: bookingData.insuranceRequested,
                     service_type: bookingData.serviceType,
                     payment_mode: bookingData.paymentMode,
-                    booking_status: 'Pending', // Default status
+                    booking_status: 'Confirmed', // Default status
                     // estimated_cost: 0, // Consider calculating or setting later
                 };
 

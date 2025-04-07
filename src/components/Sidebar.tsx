@@ -611,8 +611,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
                                             <p className="text-xs text-gray-600 truncate" title={`${booking.drop_address} (${booking.drop_location_type})`}>
                                                 <span className="font-medium">To:</span> {booking.drop_address} ({booking.drop_location_type})
                                             </p>
-                                            {/* Optional: Button to view more details / track this specific order */}
-                                            {/* <button onClick={() => { setActiveSection('tracking'); /* setSelectedBookingId(booking.id); */ }} className="text-xs text-orange-600 hover:underline mt-1">Track Order</button> */}
+                                            {/* *** COMMENTED OUT BUTTON REMOVED HERE *** */}
                                         </li>
                                     ))}
                                 </ul>

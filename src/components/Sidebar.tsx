@@ -76,77 +76,117 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
 
 
   // --- Listener for Auth State Changes (Supabase) ---
-  useEffect(() => {
-    setLoading(true);
-    // --- Keep existing initial session check --- START
-    supabase.auth.getSession().then(({ data: { session }, error }) => {
-      if (error) console.error("Error getting initial session:", error.message);
-      const initialUser = session?.user ?? null;
-      setCurrentUser(initialUser);
-      if (!initialUser) {
-         resetAuthState(false); // Reset if no user initially
-      } else {
-          // --- NEW: Fetch initial bookings if user is already logged in --- START
-          fetchUserBookings(initialUser.id); // Fetch bookings for existing session
-          // --- NEW: Fetch initial bookings if user is already logged in --- END
-      }
-      setLoading(false); // Indicate initial auth check is done
-    });
-    // --- Keep existing initial session check --- END
-
-    const { data: authListener } = supabase.auth.onAuthStateChange(
-      (event, session) => {
-        const user = session?.user ?? null;
-        const previousUser = currentUser; // Capture previous state for comparison
-        setCurrentUser(user);
-        // setLoading(false) moved to initial check, listener handles subsequent changes
-
-        if (event === 'SIGNED_OUT' || !user) {
-          resetAuthState(); // This now also clears booking state
-          // Explicitly ensure section is cleared on logout
-          setActiveSection('');
-        } else if (event === 'SIGNED_IN') {
-            setFeedback(null);
-            // Clear form data on successful sign-in (handled by resetAuthState called by listener?)
-            // Let's explicitly clear here too for safety, in case resetAuthState wasn't called
-             setFormData({ email: '', password: '', full_name: '', phone: '', date_of_birth: '', aadhar_number: '' });
-             setIsSigningUp(false); // Ensure we are in login mode view after sign in
-
-             // --- NEW: Fetch bookings when user signs in (or if user changed) --- START
-             // Check if it's a new login OR if the user ID has actually changed
-             if (user && user.id !== previousUser?.id) {
-                 console.log("User signed in or changed, fetching bookings...");
-                 fetchUserBookings(user.id);
-             } else if (user && !previousUser) {
-                 // This covers the case where the initial load didn't have a user, but now we do
-                 console.log("User signed in (was null initially), fetching bookings...");
-                 fetchUserBookings(user.id);
-             }
-             // --- NEW: Fetch bookings when user signs in (or if user changed) --- END
+    // --- Listener for Auth State Changes (Supabase) ---
+    useEffect(() => {
+      setLoading(true);
+      // --- Initial session check (good practice) --- START
+      supabase.auth.getSession().then(({ data: { session }, error }) => {
+        if (error) console.error("Error getting initial session:", error.message);
+        const initialUser = session?.user ?? null;
+        setCurrentUser(initialUser); // Set initial user state
+  
+        if (!initialUser) {
+           resetAuthState(false); // Reset if no user initially
+           setLoading(false); // Indicate auth check done (no user)
+        } else {
+            // User exists initially
+            console.log("Initial session found for user:", initialUser.id);
+            // --- Set default section on initial load if logged in ---
+            setActiveSection('orders'); // <<< SET DEFAULT SECTION FOR INITIAL LOAD
+            fetchUserBookings(initialUser.id); // Fetch bookings for existing session
+            // setLoading will be set to false by the listener firing for INITIAL_SESSION/SIGNED_IN
+            // or potentially in the fetchUserBookings finally block if needed, but listener is safer.
         }
-      }
-    );
-
-    return () => {
-      authListener?.subscription.unsubscribe();
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // currentUser REMOVED from deps array as it's handled internally to prevent loop issues
-
-  // Helper to reset state (now resets formData AND booking state)
-  const resetAuthState = (clearFeedback = true) => {
-      setActiveSection('');
-      // Reset the comprehensive formData state
-      setFormData({ email: '', password: '', full_name: '', phone: '', date_of_birth: '', aadhar_number: '' });
-      if (clearFeedback) setFeedback(null);
-      setIsSigningUp(false); // Default to login mode
-      // --- NEW: Also clear booking data on reset --- START
-      setUserBookings([]);
-      setLatestBooking(null);
-      setFetchBookingsError(null);
-      setIsLoadingBookings(false); // Ensure booking loading state is reset
-      // --- NEW: Also clear booking data on reset --- END
-  }
+        // setLoading(false); // Let the listener handle setting loading false after potential async ops
+      });
+      // --- Initial session check --- END
+  
+      const { data: authListener } = supabase.auth.onAuthStateChange(
+        (event, session) => {
+          const user = session?.user ?? null;
+          const previousUserId = currentUser?.id; // Capture previous user ID *before* updating currentUser
+          setCurrentUser(user); // Update user state
+  
+          // Set loading to false once the listener confirms the auth state
+          // (covers initial load SIGNED_IN/INITIAL_SESSION and subsequent changes)
+          setLoading(false);
+  
+          console.log('Auth Event:', event, 'User:', user?.id, 'Previous User ID:', previousUserId); // Debug log
+  
+          if (event === 'SIGNED_OUT' || !user) {
+            console.log('Auth Event: SIGNED_OUT or user is null. Resetting state.');
+            resetAuthState(); // This now also clears booking state and activeSection
+          } else if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION' || event === 'USER_UPDATED') {
+              // Combine events where user data might be present/updated
+              // Note: INITIAL_SESSION often implies SIGNED_IN logic is needed
+               console.log(`Auth Event: ${event}. Handling user presence.`);
+               setFeedback(null); // Clear feedback on successful sign-in/session update
+               // Clear form data explicitly only if it was a *new* sign-in, not just session refresh
+               // A bit tricky - let's clear it if previousUserId was null (true new login)
+               if (!previousUserId && user) {
+                   console.log("Clearing form data as it looks like a fresh login.");
+                   setFormData({ email: '', password: '', full_name: '', phone: '', date_of_birth: '', aadhar_number: '' });
+               }
+               setIsSigningUp(false); // Ensure we are in login mode view
+  
+               // --- Fetch bookings and set default section ---
+               // Check if the user ID actually changed OR if the user just appeared (was null before)
+               if (user && user.id !== previousUserId) {
+                   console.log(`User signed in or changed (${previousUserId} -> ${user.id}). Setting default section and fetching bookings...`);
+                   // --- MODIFICATION: Set default section ---
+                   setActiveSection('orders'); // <<< SET DEFAULT SECTION HERE
+                   fetchUserBookings(user.id); // Initiate the booking fetch
+               } else if (user && previousUserId && user.id === previousUserId && event === 'USER_UPDATED') {
+                  // Handle USER_UPDATED event specifically if needed (e.g., refresh data but maybe keep section?)
+                  console.log(`User data updated for ${user.id}. Re-fetching bookings.`);
+                  // Optionally, decide if you want to reset the section or keep the current one
+                  // setActiveSection('orders'); // Reset to orders?
+                  fetchUserBookings(user.id); // Re-fetch bookings
+               } else if (user && previousUserId && user.id === previousUserId) {
+                   // User didn't change (e.g., token refresh, listener fired again)
+                   // We probably already fetched bookings and set the section.
+                   // Only set default section if it somehow got cleared but user is still logged in.
+                   console.log(`Auth listener fired for same user (${user.id}), event: ${event}. Ensuring default section if needed.`);
+                   if (!activeSection) {
+                       console.log("Active section was empty for logged-in user, setting default.");
+                       setActiveSection('orders');
+                       // Fetch bookings again only if they are missing?
+                       if (userBookings.length === 0 && !isLoadingBookings) {
+                           console.log("No bookings loaded for existing user, attempting fetch.");
+                           fetchUserBookings(user.id);
+                       }
+                   }
+               }
+          }
+          // Handle other events like PASSWORD_RECOVERY if needed
+        }
+      );
+  
+      return () => {
+        console.log("Unsubscribing auth listener.");
+        authListener?.subscription.unsubscribe();
+      };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []); // Empty dependency array is correct for onAuthStateChange setup
+  
+    // Helper to reset state (now resets formData AND booking state)
+    const resetAuthState = (clearFeedback = true) => {
+        console.log("Resetting Auth State. Clearing activeSection, form data, and booking data."); // Debug log
+        setActiveSection(''); // Clear the active section
+        // Reset the comprehensive formData state
+        setFormData({ email: '', password: '', full_name: '', phone: '', date_of_birth: '', aadhar_number: '' });
+        if (clearFeedback) setFeedback(null);
+        setIsSigningUp(false); // Default to login mode
+        // --- Also clear booking data on reset --- START
+        setUserBookings([]);
+        setLatestBooking(null);
+        setFetchBookingsError(null);
+        setIsLoadingBookings(false); // Ensure booking loading state is reset
+        // --- Also clear booking data on reset --- END
+    }
+  
+  // Rest of your component code...
+    
 
   // --- Body Scroll Lock ---
   useEffect(() => {

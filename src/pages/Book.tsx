@@ -3,9 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '../supabase';
 
 // --- Reusable Green Checkmark Component ---
-const GreenCheckmark = () => (
+const GreenCheckmark = ({ small = false }: { small?: boolean }) => (
     <svg
-      className="w-20 h-20 sm:w-24 sm:h-24 text-green-500"
+      className={`${small ? 'w-5 h-5' : 'w-20 h-20 sm:w-24 sm:h-24'} text-green-500`}
       fill="none" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"
       viewBox="0 0 24 24" stroke="currentColor"
     >
@@ -61,10 +61,15 @@ const Book = () => {
     const [isAuthenticated, setIsAuthenticated] = useState(false);
     const [isSubmitSuccess, setIsSubmitSuccess] = useState(false);
 
+    // --- OTP Sending State ---
+    const [isOtpSent, setIsOtpSent] = useState(false); // Track if OTP has been sent for the current number
+    const [isSendingOtp, setIsSendingOtp] = useState(false); // Track if currently sending
+    const [otpError, setOtpError] = useState<string | null>(null); // Error message for OTP sending
+
     // --- Authentication Check ---
     useEffect(() => {
+        // ... (auth check logic remains the same) ...
         let isMounted = true;
-        // ... (rest of the useEffect for auth remains the same) ...
         const checkUserSession = async () => {
             try {
                 const { data: { session }, error } = await supabase.auth.getSession();
@@ -79,6 +84,7 @@ const Book = () => {
                         ...prev,
                         email: prev.email || session.user?.email || '',
                         name: prev.name || session.user?.user_metadata?.full_name || ''
+                        // Do NOT prefill phone here
                     }));
                 }
             } catch (err) {
@@ -131,10 +137,18 @@ const Book = () => {
         const newErrors: Record<string, string> = {};
         const data = bookingData;
 
+        // Basic phone format validation (required, basic E.164 check)
+        const phoneRegex = /^\+?[1-9]\d{1,14}$/;
+        if (!data.phone.trim()) {
+            newErrors.phone = 'Phone number is required';
+        } else if (!phoneRegex.test(data.phone)) {
+            newErrors.phone = 'Enter a valid phone number including country code (e.g., +91XXXXXXXXXX)';
+        }
+
+        // --- Other Validations Remain the Same ---
         // 1. User Info
         if (!data.name.trim()) newErrors.name = 'Full Name is required';
-        if (!data.phone.trim()) newErrors.phone = 'Phone number is required';
-        else if (!/^\+?[\d\s-]{10,15}$/.test(data.phone)) newErrors.phone = 'Enter a valid phone number';
+        // Phone validation done above
         if (!data.email.trim()) newErrors.email = 'Email is required';
         else if (!/\S+@\S+\.\S+/.test(data.email)) newErrors.email = 'Enter a valid email address';
 
@@ -145,9 +159,9 @@ const Book = () => {
         if (!data.dropAddress.trim()) newErrors.dropAddress = 'Drop-off address/location name is required';
         if (!data.pickupDate) newErrors.pickupDate = 'Pickup date is required';
         else {
-             const selectedDate = new Date(data.pickupDate + 'T00:00:00');
-             const today = new Date(minDate + 'T00:00:00');
-             if (selectedDate < today) newErrors.pickupDate = 'Pickup date cannot be in the past';
+            const selectedDate = new Date(data.pickupDate + 'T00:00:00');
+            const today = new Date(minDate + 'T00:00:00');
+            if (selectedDate < today) newErrors.pickupDate = 'Pickup date cannot be in the past';
         }
         if (!data.pickupTime) newErrors.pickupTime = 'Pickup time is required';
         else if (data.pickupDate === minDate && data.pickupTime < minTimeForToday) {
@@ -158,7 +172,6 @@ const Book = () => {
             newErrors.pnrNumber = 'PNR must be 10 digits if provided';
         }
         if (!data.deliveryPreference) newErrors.deliveryPreference = 'Select a delivery preference';
-        // Conditionally require coach/seat
         if (data.deliveryPreference === 'Deliver to Seat') {
             if (!data.coachNumber.trim()) newErrors.coachNumber = 'Coach number required for seat delivery';
             if (!data.seatNumber.trim()) newErrors.seatNumber = 'Seat number required for seat delivery';
@@ -169,7 +182,7 @@ const Book = () => {
         if (isNaN(bags) || bags <= 0) newErrors.numberOfBags = 'Enter a valid number of bags (1 or more)';
         if (!data.weightCategory) newErrors.weightCategory = 'Select a weight category';
 
-        // 5. Pricing & Payment (Assuming Section 4 was a typo)
+        // 5. Pricing & Payment
         if (!data.serviceType) newErrors.serviceType = 'Select a service type';
         if (!data.paymentMode) newErrors.paymentMode = 'Select a payment mode';
 
@@ -187,24 +200,35 @@ const Book = () => {
             const { checked } = e.target as HTMLInputElement;
             setBookingData(prevData => ({ ...prevData, [name]: checked }));
         } else {
-            setBookingData(prevData => ({ ...prevData, [name]: value }));
+             setBookingData(prevData => ({ ...prevData, [name]: value }));
+            // --- Reset OTP SENT status if phone number changes ---
+            if (name === 'phone') {
+                setIsOtpSent(false); // Allow sending again for the new number
+                setOtpError(null);   // Clear any previous OTP error
+            }
         }
 
-        // Clear error for the field being changed (if it exists)
+        // Clear validation error for the field being changed
         setErrors(prevErrors => {
-            // Only create a new object if the error needs to be removed
             if (prevErrors[name]) {
                 const updatedErrors = { ...prevErrors };
                 delete updatedErrors[name];
+                // Also clear OTP error if phone validation error is cleared
+                if (name === 'phone') {
+                    setOtpError(null);
+                }
                 return updatedErrors;
             }
-            // Otherwise, return the original errors object (optimization)
             return prevErrors;
         });
-    }, []); // No dependencies needed if it only uses e.target
+        // Clear general submit error on any change
+        setSubmitError(null);
+
+    }, []); // No dependencies needed
 
     // --- Handle PNR Fetch (Placeholder) ---
     const handlePnrFetch = useCallback(async () => {
+        // ... (PNR fetch logic remains the same) ...
         if (!bookingData.pnrNumber || !/^\d{10}$/.test(bookingData.pnrNumber)) {
             setErrors(prev => ({...prev, pnrNumber: 'Enter a valid 10-digit PNR to fetch details'}));
             return;
@@ -212,28 +236,76 @@ const Book = () => {
         alert(`TODO: Implement API call to fetch details for PNR: ${bookingData.pnrNumber}`);
     }, [bookingData.pnrNumber]);
 
+    // --- Handle Send OTP ---
+    const handleSendOtp = useCallback(async () => {
+        setOtpError(null); // Clear previous OTP error
+        setErrors(prev => { // Clear only phone validation error if exists
+            const updated = {...prev};
+            delete updated.phone;
+            return updated;
+        });
+
+        // Re-validate phone format specifically for sending OTP
+        const phoneRegex = /^\+?[1-9]\d{1,14}$/;
+        if (!bookingData.phone || !phoneRegex.test(bookingData.phone)) {
+             setErrors(prev => ({ ...prev, phone: 'Enter a valid phone number with country code to send OTP' }));
+             // Optionally focus the field: document.getElementById('phone')?.focus();
+            return;
+        }
+
+        setIsSendingOtp(true);
+        try {
+            console.log(`Simulating sending OTP to: ${bookingData.phone}`);
+            // --- Replace with actual Supabase Edge Function Call ---
+            // const { data, error } = await supabase.functions.invoke('send-booking-otp', {
+            //    body: { phone: bookingData.phone }
+            // });
+            // if (error) throw new Error(`Function Error: ${error.message}`);
+            // // Check for errors returned explicitly by the function body
+            // if (data && data.error) throw new Error(data.error);
+            // if (!data || data.success !== true) throw new Error(data?.message || 'Failed to send OTP.');
+            // --- Simulation ---
+            await new Promise(resolve => setTimeout(resolve, 1500)); // Simulate network delay
+            // Simulate potential failure randomly (for testing UI)
+            // if (Math.random() > 0.8) {
+            //     throw new Error("Simulated SMS provider issue.");
+            // }
+            // --- End Simulation ---
+
+            console.log("OTP Sent (simulated)");
+            setIsOtpSent(true); // Mark as sent for this number
+            setSubmitError(null); // Clear general submit error if OTP sent successfully
+
+        } catch (err: any) {
+            console.error("Error sending OTP:", err);
+            setOtpError(`Failed to send OTP: ${err.message || 'Please check the number and try again.'}`);
+            setIsOtpSent(false); // Ensure OTP sent status is false on failure
+        } finally {
+            setIsSendingOtp(false);
+        }
+    }, [bookingData.phone]); // Depends on the phone number
+
 
     // --- Handle Submit ---
     const handleSubmit = useCallback(async (e: React.FormEvent) => {
         e.preventDefault(); // Prevent default form submission
 
+        // 0. Authentication Check
         if (!isAuthenticated) {
              setSubmitError("You must be logged in to submit a booking.");
-             // Optionally, trigger the login sidebar here too if desired
-             // const event = new CustomEvent('openLoginSidebar');
-             // window.dispatchEvent(event);
              return;
         }
 
         setSubmitError(null);      // Clear previous submission errors
         setIsSubmitSuccess(false); // Reset success state
 
-        // --- Run Validation ---
+        // --- 1. Run Standard Form Validation ---
         // Note: validateForm now also updates the `errors` state internally
         const isFormValid = validateForm();
 
+        // --- 2. Proceed if Form is Valid ---
+        // We are NOT checking for OTP verification here anymore
         if (isFormValid) {
-            // --- Validation Passed: Proceed with Submission ---
             setIsSubmitting(true);
             try {
                  const { data: { user } } = await supabase.auth.getUser();
@@ -245,7 +317,7 @@ const Book = () => {
                 const dataToSubmit = {
                     user_id: user.id,
                     name: bookingData.name.trim(),
-                    phone: bookingData.phone.trim(),
+                    phone: bookingData.phone.trim(), // The phone number entered
                     email: bookingData.email.trim(),
                     pickup_location_type: bookingData.pickupLocationType,
                     pickup_address: bookingData.pickupAddress.trim(),
@@ -266,7 +338,7 @@ const Book = () => {
                     service_type: bookingData.serviceType,
                     payment_mode: bookingData.paymentMode,
                     booking_status: 'Confirmed', // Default status
-                    // estimated_cost: 0, // Consider calculating or setting later
+                    // is_phone_otp_sent: isOtpSent, // Optionally track if OTP was sent
                 };
 
                 console.log("Submitting to Supabase:", dataToSubmit);
@@ -278,7 +350,7 @@ const Book = () => {
 
                 if (insertError) {
                     console.error('Supabase booking insert error:', insertError);
-                    throw new Error(`Booking failed: ${insertError.message}. Please try again.`); // Throw to be caught below
+                    throw new Error(`Booking failed: ${insertError.message}. Please try again.`);
                 } else {
                     // --- Submission Successful ---
                     console.log('Booking successful!');
@@ -297,10 +369,12 @@ const Book = () => {
                         setErrors({});             // Clear validation errors
                         setSubmitError(null);      // Clear submission error message
                         setIsSubmitSuccess(false); // Hide success overlay
+                        setIsOtpSent(false);       // Reset OTP sent status
+                        setOtpError(null);         // Clear OTP error
                         setIsSubmitting(false);    // Re-enable submit button
                         // Optional: Redirect user after success
                         // navigate('/my-bookings');
-                    }, 3000); // 3-second delay for success message visibility
+                    }, 3000); // 3-second delay
                 }
             } catch (err: any) {
                 // --- Handle Errors during Submission Process ---
@@ -310,42 +384,31 @@ const Book = () => {
             }
         } else {
             // --- Validation Failed ---
-            console.log("Validation failed. Errors:", errors); // Log the actual errors object set by validateForm
-            setSubmitError("Please fix the errors marked in the form before submitting."); // Set general error message
+            console.log("Validation failed. Errors:", errors);
+            setSubmitError("Please fix the errors marked in the form before submitting.");
 
             // --- Scroll to the first error ---
-            // Get the keys of the current errors state
             const errorKeys = Object.keys(errors);
             if (errorKeys.length > 0) {
                 const firstErrorKey = errorKeys[0];
                 const elementToFocus = document.getElementById(firstErrorKey);
-
                 if (elementToFocus) {
-                    // Focus the element first (helps screen readers, often triggers browser's own scroll)
-                    // Use preventScroll: true because we want to control the scroll smoothly ourselves.
                     elementToFocus.focus({ preventScroll: true });
-
-                    // Then, smoothly scroll the element into view, centered if possible.
-                    elementToFocus.scrollIntoView({
-                        behavior: 'smooth', // Use smooth scrolling
-                        block: 'center',    // Try to align vertically in the center
-                        inline: 'nearest'   // Align horizontally as needed
-                    });
-
+                    elementToFocus.scrollIntoView({ behavior: 'smooth', block: 'center' });
                     console.log(`Scrolled to the first error field: #${firstErrorKey}`);
                 } else {
                     console.warn(`Could not find element with ID: #${firstErrorKey} to scroll to.`);
                 }
             }
-            // No need to set isSubmitting(false) here, as it wasn't set to true yet
         }
     }, [
-        bookingData, // Depends on current form data
-        errors, // Depends on current errors (for scrolling logic)
-        validateForm, // The validation function itself
-        navigate, // For potential redirection
-        isAuthenticated // To check auth status
-    ]); // Added `errors` to dependencies for the scrolling logic
+        bookingData,
+        errors, // For scrolling logic
+        validateForm,
+        navigate,
+        isAuthenticated,
+        isOtpSent // Include in dependency list, maybe needed if you add logic based on it later
+    ]);
 
 
     // --- Render Logic ---
@@ -355,8 +418,7 @@ const Book = () => {
         return (
           <div className="flex justify-center items-center min-h-screen bg-gray-50">
             <div className="text-center">
-                 <svg className="animate-spin h-10 w-10 text-[#ff8c00] mx-auto mb-4" /* ... */ >
-                    {/* ... spinner SVG paths ... */}
+                 <svg className="animate-spin h-10 w-10 text-[#ff8c00] mx-auto mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                  </svg>
@@ -385,17 +447,19 @@ const Book = () => {
 
     // 4. Authenticated, show the form
     const commonInputProps = (name: keyof typeof bookingData, isRequired = true) => ({
-         id: name, // Crucial for the scroll-to-error functionality
+         id: name, // Crucial for scroll-to-error
         name: name,
         onChange: handleChange,
         className: `mt-1 block w-full px-3 py-2 bg-white border ${errors[name] ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm focus:outline-none focus:ring-1 focus:ring-[#ff8c00] focus:border-[#ff8c00] sm:text-sm disabled:bg-gray-100 disabled:cursor-not-allowed`,
-        disabled: isSubmitting,
+        disabled: isSubmitting, // Only disable during final submission
         'aria-invalid': errors[name] ? "true" : "false",
-        // Link error message to input for accessibility
-        'aria-describedby': errors[name] ? `${name}-error` : undefined,
-        // Add required attribute for browser built-in hints (optional but good practice)
-        // required: isRequired, // Can uncomment if you want browser validation hints too
+        'aria-describedby': errors[name] ? `${name}-error` : (otpError && name === 'phone' ? 'otp-error-message' : undefined),
+        // required: isRequired, // Optional browser hint
     });
+
+    // Determine if Send OTP button should be disabled
+    const phoneRegexValid = /^\+?[1-9]\d{1,14}$/.test(bookingData.phone);
+    const disableSendOtpButton = isSendingOtp || isOtpSent || !phoneRegexValid || isSubmitting;
 
     return (
         <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
@@ -407,13 +471,11 @@ const Book = () => {
                     Fill in the details below to arrange your baggage transfer.
                 </p>
 
-                {/* Use novalidate to prevent default browser validation UI, relying on ours */}
                 <form onSubmit={handleSubmit} noValidate className="bg-white p-6 sm:p-8 rounded-lg shadow-lg space-y-8">
                      {/* General Submission Error */}
                     {submitError && (
-                        // Ensure this error display has an ID if you want to potentially scroll to it too
                         <div id="submit-error-message" className="p-3 bg-red-100 border-l-4 border-red-500 text-red-700 rounded-md text-sm" role="alert">
-                            <p className="font-bold">Oops! Something went wrong.</p>
+                            <p className="font-bold">Booking Error</p>
                             <p>{submitError}</p>
                         </div>
                     )}
@@ -424,18 +486,68 @@ const Book = () => {
                             1. Your Contact Information
                         </legend>
                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            {/* Name Field */}
                             <div>
                                 <label htmlFor="name" className="block text-sm font-medium text-gray-700">Full Name</label>
                                 <input type="text" {...commonInputProps('name', true)} value={bookingData.name} placeholder="e.g., Priya Sharma" autoComplete="name" />
-                                {/* Ensure error message ID matches aria-describedby */}
                                 {errors.name && <p id="name-error" className="mt-1 text-xs text-red-600">{errors.name}</p>}
                             </div>
+
+                            {/* Phone Field + OTP Button */}
                             <div>
-                                <label htmlFor="phone" className="block text-sm font-medium text-gray-700">Phone Number</label>
-                                <input type="tel" {...commonInputProps('phone', true)} value={bookingData.phone} placeholder="e.g., 9876543210" autoComplete="tel" />
+                                <label htmlFor="phone" className="block text-sm font-medium text-gray-700">Phone Number (with country code)</label>
+                                <div className="relative mt-1">
+                                    <input
+                                        type="tel"
+                                        {...commonInputProps('phone', true)}
+                                        value={bookingData.phone}
+                                        placeholder="e.g., +919876543210"
+                                        autoComplete="tel"
+                                        // Adjust paddingRight if OTP button overlaps text on smaller screens
+                                        className={`block w-full px-3 py-2 bg-white border ${errors.phone || otpError ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm focus:outline-none focus:ring-1 focus:ring-[#ff8c00] focus:border-[#ff8c00] sm:text-sm disabled:bg-gray-100 disabled:cursor-not-allowed pr-28`} // Add padding right
+                                        // Disable input slightly differently if OTP is sent? Maybe not needed.
+                                        // disabled={isSubmitting || (isOtpSent && !otpError)} // Example: Disable if sent & no error
+                                    />
+                                     <div className="absolute inset-y-0 right-0 pr-1 flex items-center">
+                                        {isOtpSent && !otpError && (
+                                             <span className="flex items-center text-green-600 text-xs mr-2">
+                                                 <GreenCheckmark small={true} />
+                                                 <span className='ml-1'>OTP Sent</span>
+                                            </span>
+                                        )}
+                                        {( !isOtpSent || otpError) && ( // Show button if not sent or if there was an error sending
+                                            <button
+                                                type="button"
+                                                onClick={handleSendOtp}
+                                                disabled={disableSendOtpButton}
+                                                className={`inline-flex items-center px-3 py-1 border border-transparent text-xs font-medium rounded shadow-sm ${
+                                                    disableSendOtpButton
+                                                    ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                                                    : 'bg-[#ff8c00] text-white hover:bg-[#e07b00] focus:outline-none focus:ring-2 focus:ring-offset-1 focus:ring-[#ff8c00]'
+                                                } transition duration-150 ease-in-out`}
+                                            >
+                                                {isSendingOtp ? (
+                                                    <>
+                                                        <svg className="animate-spin -ml-0.5 mr-1.5 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                                        </svg>
+                                                        Sending...
+                                                    </>
+                                                ) : (
+                                                    'Send OTP'
+                                                )}
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                                {/* Display phone validation error OR OTP sending error */}
                                 {errors.phone && <p id="phone-error" className="mt-1 text-xs text-red-600">{errors.phone}</p>}
+                                {otpError && <p id="otp-error-message" className="mt-1 text-xs text-red-600">{otpError}</p>}
+                                <p className="mt-1 text-xs text-gray-500">We'll send a one-time password to this number.</p>
                             </div>
                         </div>
+                         {/* Email Field */}
                         <div>
                             <label htmlFor="email" className="block text-sm font-medium text-gray-700">Email Address</label>
                             <input type="email" {...commonInputProps('email', true)} value={bookingData.email} placeholder="you@example.com" autoComplete="email"/>
@@ -444,7 +556,8 @@ const Book = () => {
                     </fieldset>
 
                     {/* === Section 2: Pickup & Drop-Off Details === */}
-                    <fieldset className="space-y-6 border-t border-gray-200 pt-6">
+                    {/* ... (Remains the same as previous version) ... */}
+                     <fieldset className="space-y-6 border-t border-gray-200 pt-6">
                          <legend className="text-lg font-semibold text-gray-800 border-b border-gray-200 pb-2 mb-4">
                             2. Pickup & Drop-Off Details
                         </legend>
@@ -514,14 +627,13 @@ const Book = () => {
                              <div>
                                 <label htmlFor="trainName" className="block text-sm font-medium text-gray-700">Train Name <span className="text-xs text-gray-500">(Optional)</span></label>
                                 <input type="text" {...commonInputProps('trainName', false)} value={bookingData.trainName} placeholder="e.g., Rajdhani Express" />
-                                {/* No error display needed for optional field */}
                             </div>
                         </div>
                          <div className="relative">
                             <label htmlFor="pnrNumber" className="block text-sm font-medium text-gray-700">PNR Number <span className="text-xs text-gray-500">(Optional)</span></label>
                             <input
                                 type="text"
-                                {...commonInputProps('pnrNumber', false)} // PNR explicitly optional
+                                {...commonInputProps('pnrNumber', false)}
                                 value={bookingData.pnrNumber}
                                 placeholder="10-digit PNR"
                                 maxLength={10}
@@ -571,8 +683,10 @@ const Book = () => {
                         </div>
                     </fieldset>
 
+
                     {/* === Section 3: Luggage Details === */}
-                    <fieldset className="space-y-6 border-t border-gray-200 pt-6">
+                    {/* ... (Remains the same as previous version) ... */}
+                     <fieldset className="space-y-6 border-t border-gray-200 pt-6">
                         <legend className="text-lg font-semibold text-gray-800 border-b border-gray-200 pb-2 mb-4">
                             3. Luggage Details
                         </legend>
@@ -601,7 +715,6 @@ const Book = () => {
                                 rows={3}
                                 placeholder="e.g., Fragile items inside, handle with care, contains electronics..."
                              ></textarea>
-                             {/* No error display needed for optional field */}
                         </div>
                         <div className="relative flex items-start">
                             <div className="flex items-center h-5">
@@ -619,13 +732,14 @@ const Book = () => {
                                 <label htmlFor="insuranceRequested" className="font-medium text-gray-700">
                                     Add Luggage Insurance?
                                 </label>
-                                <p className="text-xs text-gray-500">(Optional, additional charges may apply based on declared value)</p>
+                                <p className="text-xs text-gray-500">(Optional, additional charges may apply)</p>
                             </div>
                         </div>
                     </fieldset>
 
                     {/* === Section 4: Service & Payment === */}
-                    <fieldset className="space-y-6 border-t border-gray-200 pt-6">
+                    {/* ... (Remains the same as previous version) ... */}
+                     <fieldset className="space-y-6 border-t border-gray-200 pt-6">
                         <legend className="text-lg font-semibold text-gray-800 border-b border-gray-200 pb-2 mb-4">
                             4. Service & Payment
                         </legend>
@@ -638,8 +752,7 @@ const Book = () => {
                             </select>
                              {errors.serviceType && <p id="serviceType-error" className="mt-1 text-xs text-red-600">{errors.serviceType}</p>}
                         </div>
-                        {/* Estimated Cost Placeholder (Maybe implement later) */}
-                        {/* <div className="p-3 bg-blue-50 border border-blue-200 rounded-md"> ... </div> */}
+                        {/* Estimated Cost Placeholder */}
                         <div>
                             <label htmlFor="paymentMode" className="block text-sm font-medium text-gray-700">Preferred Payment Method</label>
                             <select {...commonInputProps('paymentMode', true)} value={bookingData.paymentMode}>
@@ -659,19 +772,20 @@ const Book = () => {
                         <button
                             type="submit"
                             className="group relative w-full flex justify-center py-3 px-4 border border-transparent text-base font-medium rounded-md text-white bg-[#ff8c00] hover:bg-[#e07b00] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#ff8c00] disabled:opacity-60 disabled:cursor-wait transition duration-150 ease-in-out"
-                            disabled={isSubmitting || !isAuthenticated}
+                            disabled={isSubmitting || !isAuthenticated} // Disable if submitting or not logged in
                         >
                             {isSubmitting ? (
                                 <>
-                                    <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" /* ... */ >
-                                         {/* ... spinner SVG paths ... */}
+                                    <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                                     </svg>
                                     Processing Booking...
                                 </>
                             ) : (
-                                'Confirm & Proceed to Payment' // Or 'Confirm Booking'
+                                // Change text based on whether OTP has been sent? Optional.
+                                // isOtpSent ? 'Confirm & Proceed' : 'Confirm Booking'
+                                'Confirm Booking & Proceed'
                             )}
                         </button>
                     </div>

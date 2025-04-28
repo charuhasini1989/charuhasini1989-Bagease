@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { Users, Target, Award, Heart } from 'lucide-react';
 
-// Sample Testimonial Data (add more as needed, minimum 6 recommended)
-const testimonialsData = [
+// --- Sample Static Testimonial Data (can be expanded later) ---
+// We'll just manually put 3 testimonials directly into the JSX for now.
+const staticTestimonials = [
   {
     id: 1,
     name: 'Priya Sharma',
@@ -21,69 +22,17 @@ const testimonialsData = [
     location: 'Bengaluru',
     quote: "As a frequent business traveler, BagEase saves me precious time. Straight from the train to my meeting, luggage handled seamlessly.",
   },
-  {
-    id: 4,
-    name: 'Rajesh Kumar',
-    location: 'Chennai',
-    quote: "Was skeptical at first, but the service exceeded expectations. Dropped my bags at home, picked them up at Chennai Central. Hassle-free!",
-  },
-  {
-    id: 5,
-    name: 'Anjali Singh',
-    location: 'Kolkata',
-    quote: "Affordable and reliable. Made my solo trip much less stressful knowing my luggage was taken care of from Howrah station to my hotel.",
-  },
-  {
-    id: 6,
-    name: 'Vikram Desai',
-    location: 'Hyderabad',
-    quote: "Used BagEase for our family vacation. Smooth process from booking to delivery at Secunderabad. Great peace of mind!",
-  },
-   {
-    id: 7,
-    name: 'Meera Iyer',
-    location: 'Pune',
-    quote: "Fantastic service! Left my heavy bags at home and they were safely waiting for me at Pune station. Allowed me to enjoy the journey.",
-  },
+  // You can add more here if you want to manually display more than 3 initially
 ];
 
+
 const About = () => {
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [displayedTestimonials, setDisplayedTestimonials] = useState([]);
-
-  // Number of testimonials to display at a time
-  const numVisible = 3;
-
-  useEffect(() => {
-    // Initial load
-    const initialSlice = [];
-    for (let i = 0; i < numVisible; i++) {
-      initialSlice.push(testimonialsData[(currentIndex + i) % testimonialsData.length]);
-    }
-    setDisplayedTestimonials(initialSlice);
-
-    // Set interval for rotation
-    const intervalId = setInterval(() => {
-      setCurrentIndex(prevIndex => {
-        const nextIndex = (prevIndex + 1) % testimonialsData.length;
-        const nextSlice = [];
-        for (let i = 0; i < numVisible; i++) {
-          nextSlice.push(testimonialsData[(nextIndex + i) % testimonialsData.length]);
-        }
-        setDisplayedTestimonials(nextSlice);
-        return nextIndex;
-      });
-    }, 3000); // Rotate every 3 seconds
-
-    // Cleanup interval on component unmount
-    return () => clearInterval(intervalId);
-  }, []); // Run only once on mount
-
   return (
+    // Main container - ensures consistent width and padding
     <div className="max-w-6xl mx-auto px-4 py-12">
       <h1 className="text-4xl font-bold text-center mb-12">About BagEase</h1>
 
-      {/* Our Story Section */}
+      {/* Our Story Section - Keeping existing structure */}
       <div className="bg-white rounded-lg shadow-lg p-8 mb-12">
         <h2 className="text-2xl font-semibold mb-6">Our Story</h2>
         <p className="text-gray-600 mb-6">
@@ -101,10 +50,10 @@ const About = () => {
         </p>
       </div>
 
-      {/* Stats Section */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8 mb-12 text-center">
-        <div>
-          <Users className="w-12 h-12 text-blue-600 mx-auto mb-4" /> {/* Slightly changed icon color for variety */}
+      {/* Stats Section - Keeping existing structure */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8 mb-12 text-center"> {/* Adjusted grid cols for responsiveness */}
+        <div> {/* Wrapped each item in a div for better grid control */}
+          <Users className="w-12 h-12 text-blue-600 mx-auto mb-4" /> {/* Use a slightly branded color */}
           <h3 className="text-xl font-semibold mb-2">5000+</h3>
           <p className="text-gray-600">Happy Customers</p>
         </div>
@@ -125,7 +74,7 @@ const About = () => {
         </div>
       </div>
 
-      {/* Mission & Vision Section */}
+      {/* Mission & Vision Section - Keeping existing structure */}
       <div className="grid md:grid-cols-2 gap-8 mb-12">
         <div className="bg-white rounded-lg shadow-lg p-8">
           <h2 className="text-2xl font-semibold mb-6">Our Mission</h2>
@@ -145,58 +94,73 @@ const About = () => {
         </div>
       </div>
 
-      {/* Our Values Section */}
-      <div className="bg-blue-50 rounded-lg p-8 mb-12">
+      {/* Our Values Section - Keeping existing structure */}
+      <div className="bg-blue-50 rounded-lg p-8 mb-12"> {/* Added mb-12 for spacing below */}
         <h2 className="text-2xl font-semibold mb-6 text-center">Our Values</h2>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-center">
-           <div> {/* Added div wrapper for consistent centering */}
-            <h3 className="font-semibold mb-3">Reliability</h3>
-            <p className="text-gray-600 text-sm sm:text-base"> {/* Adjusted text size slightly */}
-              We deliver on our promises, ensuring your luggage reaches its destination
-              safely and on time.
-            </p>
-          </div>
-          <div>
-            <h3 className="font-semibold mb-3">Security</h3>
-            <p className="text-gray-600 text-sm sm:text-base">
-              Your belongings' safety is our top priority, handled with care and tracked diligently.
-            </p>
-          </div>
-          <div>
-            <h3 className="font-semibold mb-3">Customer First</h3>
-            <p className="text-gray-600 text-sm sm:text-base">
-              We go above and beyond to ensure our customers have the best possible
-              and hassle-free experience.
-            </p>
-          </div>
-        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-center"> {/* Adjusted grid cols & text-center */}
+           <div>
+             <h3 className="font-semibold mb-3">Reliability</h3>
+             <p className="text-gray-600 text-sm sm:text-base"> {/* Adjusted text size */}
+               We deliver on our promises, ensuring your luggage reaches its destination
+               safely and on time.
+             </p>
+           </div>
+           <div>
+             <h3 className="font-semibold mb-3">Security</h3>
+             <p className="text-gray-600 text-sm sm:text-base">
+               Your belongings' safety is our top priority, handled with care and tracked diligently.
+             </p>
+           </div>
+           <div>
+             <h3 className="font-semibold mb-3">Customer First</h3>
+             <p className="text-gray-600 text-sm sm:text-base">
+               We go above and beyond to ensure our customers have the best possible
+               and hassle-free experience.
+             </p>
+           </div>
+         </div>
       </div>
 
-      {/* --- Customer Testimonials Section --- */}
+      {/* --- NEW: Static Customer Testimonials Section --- */}
       <div className="py-12"> {/* Added padding top/bottom */}
         <h2 className="text-2xl font-semibold text-center mb-8">What Our Customers Say</h2>
-        {/* Overflow hidden is optional, as we're controlling the exact items displayed */}
-        <div className="overflow-hidden relative">
-            {/* Grid to display testimonials. Adjust columns for responsiveness */}
-           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-             {displayedTestimonials.map((testimonial) => (
-               <div
-                 key={testimonial.id}
-                 className="bg-white rounded-lg shadow-md p-6 border border-gray-100 flex flex-col" /* Added border, flex */
-               >
-                 <p className="text-gray-600 italic mb-4 flex-grow">"{testimonial.quote}"</p> {/* Italic quote, flex-grow */}
-                 <p className="font-semibold text-right text-blue-700">- {testimonial.name}</p> {/* Right align name */}
-                 {testimonial.location && (
-                     <p className="text-sm text-gray-500 text-right">{testimonial.location}</p> /* Optional location */
-                 )}
-               </div>
-             ))}
-           </div>
+        {/* Grid to display testimonials. Adjust columns for responsiveness */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+
+          {/* Testimonial Card 1 (Manually added) */}
+          <div className="bg-white rounded-lg shadow-md p-6 border border-gray-100 flex flex-col">
+            <p className="text-gray-600 italic mb-4 flex-grow">"{staticTestimonials[0].quote}"</p>
+            <p className="font-semibold text-right text-blue-700">- {staticTestimonials[0].name}</p>
+            {staticTestimonials[0].location && (
+                <p className="text-sm text-gray-500 text-right">{staticTestimonials[0].location}</p>
+            )}
+          </div>
+
+          {/* Testimonial Card 2 (Manually added) */}
+          <div className="bg-white rounded-lg shadow-md p-6 border border-gray-100 flex flex-col">
+            <p className="text-gray-600 italic mb-4 flex-grow">"{staticTestimonials[1].quote}"</p>
+            <p className="font-semibold text-right text-blue-700">- {staticTestimonials[1].name}</p>
+            {staticTestimonials[1].location && (
+                <p className="text-sm text-gray-500 text-right">{staticTestimonials[1].location}</p>
+            )}
+          </div>
+
+          {/* Testimonial Card 3 (Manually added) */}
+          <div className="bg-white rounded-lg shadow-md p-6 border border-gray-100 flex flex-col">
+            <p className="text-gray-600 italic mb-4 flex-grow">"{staticTestimonials[2].quote}"</p>
+            <p className="font-semibold text-right text-blue-700">- {staticTestimonials[2].name}</p>
+            {staticTestimonials[2].location && (
+                <p className="text-sm text-gray-500 text-right">{staticTestimonials[2].location}</p>
+            )}
+          </div>
+
+          {/* Add more cards manually here if needed, following the same pattern */}
+
         </div>
       </div>
-      {/* --- End Customer Testimonials Section --- */}
+      {/* --- End Static Customer Testimonials Section --- */}
 
-    </div>
+    </div> // End of main container
   );
 };
 

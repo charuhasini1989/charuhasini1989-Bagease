@@ -3,10 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '../supabase';
 
 // --- Reusable Green Checkmark Component ---
-// ... (remains the same)
-const GreenCheckmark = ({ small = false }: { small?: boolean }) => (
+const GreenCheckmark = () => (
     <svg
-      className={`${small ? 'w-5 h-5' : 'w-20 h-20 sm:w-24 sm:h-24'} text-green-500`}
+      className="w-20 h-20 sm:w-24 sm:h-24 text-green-500"
       fill="none" strokeLinecap="round" strokeLinejoin="round" strokeWidth="2"
       viewBox="0 0 24 24" stroke="currentColor"
     >
@@ -15,7 +14,6 @@ const GreenCheckmark = ({ small = false }: { small?: boolean }) => (
 );
 
 // --- Simple Prompt Component ---
-// ... (remains the same)
 const PleaseLoginPrompt = () => {
     const handleOpenSidebar = () => {
         const event = new CustomEvent('openLoginSidebar');
@@ -41,6 +39,7 @@ const PleaseLoginPrompt = () => {
     );
 };
 
+
 // --- Main Booking Component ---
 const Book = () => {
     const navigate = useNavigate();
@@ -62,16 +61,10 @@ const Book = () => {
     const [isAuthenticated, setIsAuthenticated] = useState(false);
     const [isSubmitSuccess, setIsSubmitSuccess] = useState(false);
 
-    // --- OTP Sending State ---
-    const [isOtpSent, setIsOtpSent] = useState(false); // Track if OTP has been successfully sent *for the current number*
-    const [lastOtpSentPhone, setLastOtpSentPhone] = useState<string | null>(null); // Store the number for which OTP was last sent successfully
-    const [isSendingOtp, setIsSendingOtp] = useState(false);
-    const [otpError, setOtpError] = useState<string | null>(null);
-
     // --- Authentication Check ---
-    // ... (remains the same) ...
     useEffect(() => {
         let isMounted = true;
+        // ... (rest of the useEffect for auth remains the same) ...
         const checkUserSession = async () => {
             try {
                 const { data: { session }, error } = await supabase.auth.getSession();
@@ -111,7 +104,6 @@ const Book = () => {
                             name: prev.name || session.user?.user_metadata?.full_name || ''
                         }));
                     }
-                    // Reset OTP status if user logs out/in ? Maybe not necessary.
                  }
             }
         });
@@ -122,8 +114,8 @@ const Book = () => {
         };
     }, [navigate, isLoadingAuth, isAuthenticated]);
 
+
     // --- Get Current Date and Time for Min Values ---
-    // ... (remains the same) ...
     const getMinDateTime = useCallback(() => {
         const now = new Date();
         const today = now.toISOString().split('T')[0];
@@ -135,32 +127,27 @@ const Book = () => {
 
 
     // --- Validation Function ---
-    // ... (remains the same) ...
     const validateForm = useCallback((): boolean => {
         const newErrors: Record<string, string> = {};
         const data = bookingData;
 
-        // Basic phone format validation (required, basic E.164 check)
-        const phoneRegex = /^\+?[1-9]\d{1,14}$/;
-        if (!data.phone.trim()) {
-            newErrors.phone = 'Phone number is required';
-        } else if (!phoneRegex.test(data.phone)) {
-            newErrors.phone = 'Enter a valid phone number including country code (e.g., +91XXXXXXXXXX)';
-        }
-
-        // --- Other Validations Remain the Same ---
+        // 1. User Info
         if (!data.name.trim()) newErrors.name = 'Full Name is required';
+        if (!data.phone.trim()) newErrors.phone = 'Phone number is required';
+        else if (!/^\+?[\d\s-]{10,15}$/.test(data.phone)) newErrors.phone = 'Enter a valid phone number';
         if (!data.email.trim()) newErrors.email = 'Email is required';
         else if (!/\S+@\S+\.\S+/.test(data.email)) newErrors.email = 'Enter a valid email address';
+
+        // 2. Pickup & Drop-Off
         if (!data.pickupLocationType) newErrors.pickupLocationType = 'Select pickup location type';
         if (!data.pickupAddress.trim()) newErrors.pickupAddress = 'Pickup address/location name is required';
         if (!data.dropLocationType) newErrors.dropLocationType = 'Select drop-off location type';
         if (!data.dropAddress.trim()) newErrors.dropAddress = 'Drop-off address/location name is required';
         if (!data.pickupDate) newErrors.pickupDate = 'Pickup date is required';
         else {
-            const selectedDate = new Date(data.pickupDate + 'T00:00:00');
-            const today = new Date(minDate + 'T00:00:00');
-            if (selectedDate < today) newErrors.pickupDate = 'Pickup date cannot be in the past';
+             const selectedDate = new Date(data.pickupDate + 'T00:00:00');
+             const today = new Date(minDate + 'T00:00:00');
+             if (selectedDate < today) newErrors.pickupDate = 'Pickup date cannot be in the past';
         }
         if (!data.pickupTime) newErrors.pickupTime = 'Pickup time is required';
         else if (data.pickupDate === minDate && data.pickupTime < minTimeForToday) {
@@ -171,19 +158,24 @@ const Book = () => {
             newErrors.pnrNumber = 'PNR must be 10 digits if provided';
         }
         if (!data.deliveryPreference) newErrors.deliveryPreference = 'Select a delivery preference';
+        // Conditionally require coach/seat
         if (data.deliveryPreference === 'Deliver to Seat') {
             if (!data.coachNumber.trim()) newErrors.coachNumber = 'Coach number required for seat delivery';
             if (!data.seatNumber.trim()) newErrors.seatNumber = 'Seat number required for seat delivery';
         }
+
+        // 3. Luggage Details
         const bags = parseInt(data.numberOfBags, 10);
         if (isNaN(bags) || bags <= 0) newErrors.numberOfBags = 'Enter a valid number of bags (1 or more)';
         if (!data.weightCategory) newErrors.weightCategory = 'Select a weight category';
+
+        // 5. Pricing & Payment (Assuming Section 4 was a typo)
         if (!data.serviceType) newErrors.serviceType = 'Select a service type';
         if (!data.paymentMode) newErrors.paymentMode = 'Select a payment mode';
 
-        setErrors(newErrors);
+        setErrors(newErrors); // Update errors state
         return Object.keys(newErrors).length === 0;
-    }, [bookingData, minDate, minTimeForToday]);
+    }, [bookingData, minDate, minTimeForToday]); // Dependencies include bookingData
 
 
     // --- Handle Change ---
@@ -195,37 +187,23 @@ const Book = () => {
             const { checked } = e.target as HTMLInputElement;
             setBookingData(prevData => ({ ...prevData, [name]: checked }));
         } else {
-             setBookingData(prevData => {
-                 const newData = { ...prevData, [name]: value };
-                 // --- Reset OTP SENT status if phone number *actually* changes from the last successful send ---
-                 if (name === 'phone' && value !== lastOtpSentPhone) {
-                     setIsOtpSent(false); // Mark OTP as not sent (or invalid) for this new number
-                     // Keep lastOtpSentPhone as is until a new successful send
-                 }
-                 return newData;
-             });
-             // Clear related errors on change
-             if (name === 'phone') {
-                 setOtpError(null); // Clear OTP specific error when typing
-             }
+            setBookingData(prevData => ({ ...prevData, [name]: value }));
         }
 
-        // Clear validation error for the field being changed
+        // Clear error for the field being changed (if it exists)
         setErrors(prevErrors => {
+            // Only create a new object if the error needs to be removed
             if (prevErrors[name]) {
                 const updatedErrors = { ...prevErrors };
                 delete updatedErrors[name];
                 return updatedErrors;
             }
+            // Otherwise, return the original errors object (optimization)
             return prevErrors;
         });
-        setSubmitError(null); // Clear general submit error on any change
-
-    }, [lastOtpSentPhone]); // Depend on lastOtpSentPhone to check if phone changed
-
+    }, []); // No dependencies needed if it only uses e.target
 
     // --- Handle PNR Fetch (Placeholder) ---
-    // ... (remains the same) ...
     const handlePnrFetch = useCallback(async () => {
         if (!bookingData.pnrNumber || !/^\d{10}$/.test(bookingData.pnrNumber)) {
             setErrors(prev => ({...prev, pnrNumber: 'Enter a valid 10-digit PNR to fetch details'}));
@@ -234,71 +212,28 @@ const Book = () => {
         alert(`TODO: Implement API call to fetch details for PNR: ${bookingData.pnrNumber}`);
     }, [bookingData.pnrNumber]);
 
-    // --- Handle Send OTP ---
-    const handleSendOtp = useCallback(async () => {
-        setOtpError(null); // Clear previous OTP error
-        setIsOtpSent(false); // Reset sent status before trying again
-        setErrors(prev => { // Clear only phone validation error if exists
-            const updated = {...prev};
-            delete updated.phone;
-            return updated;
-        });
-
-        // Validate phone format
-        const phoneRegex = /^\+?[1-9]\d{1,14}$/;
-        const currentPhone = bookingData.phone.trim();
-        if (!currentPhone || !phoneRegex.test(currentPhone)) {
-             setErrors(prev => ({ ...prev, phone: 'Enter a valid phone number with country code to send OTP' }));
-             document.getElementById('phone')?.focus(); // Focus phone field for correction
-            return;
-        }
-
-        setIsSendingOtp(true);
-        try {
-            console.log(`Simulating sending OTP to: ${currentPhone}`);
-            // --- Replace with actual Supabase Edge Function Call ---
-            // const { data, error } = await supabase.functions.invoke('send-booking-otp', {
-            //    body: { phone: currentPhone }
-            // });
-            // if (error) throw new Error(`Function Error: ${error.message}`);
-            // if (data && data.error) throw new Error(data.error);
-            // if (!data || data.success !== true) throw new Error(data?.message || 'Failed to send OTP.');
-            // --- Simulation ---
-            await new Promise(resolve => setTimeout(resolve, 1500));
-            // --- End Simulation ---
-
-            console.log("OTP Sent (simulated)");
-            setIsOtpSent(true); // Mark as sent for this number
-            setLastOtpSentPhone(currentPhone); // Store the number for which it was sent
-            setSubmitError(null); // Clear general submit error if OTP sent successfully
-
-        } catch (err: any) {
-            console.error("Error sending OTP:", err);
-            setOtpError(`Failed to send OTP: ${err.message || 'Please check the number and try again.'}`);
-            setIsOtpSent(false); // Ensure OTP sent status is false on failure
-            setLastOtpSentPhone(null); // Clear the last successful phone on error
-        } finally {
-            setIsSendingOtp(false);
-        }
-    }, [bookingData.phone]); // Depends on the current phone number in state
-
 
     // --- Handle Submit ---
-    // ... (remains the same as the previous version, no OTP verification check needed) ...
     const handleSubmit = useCallback(async (e: React.FormEvent) => {
-        e.preventDefault();
+        e.preventDefault(); // Prevent default form submission
 
         if (!isAuthenticated) {
              setSubmitError("You must be logged in to submit a booking.");
+             // Optionally, trigger the login sidebar here too if desired
+             // const event = new CustomEvent('openLoginSidebar');
+             // window.dispatchEvent(event);
              return;
         }
 
-        setSubmitError(null);
-        setIsSubmitSuccess(false);
+        setSubmitError(null);      // Clear previous submission errors
+        setIsSubmitSuccess(false); // Reset success state
 
+        // --- Run Validation ---
+        // Note: validateForm now also updates the `errors` state internally
         const isFormValid = validateForm();
 
         if (isFormValid) {
+            // --- Validation Passed: Proceed with Submission ---
             setIsSubmitting(true);
             try {
                  const { data: { user } } = await supabase.auth.getUser();
@@ -306,6 +241,7 @@ const Book = () => {
                      throw new Error("Authentication session lost. Please log in again.");
                  }
 
+                // Prepare data object for Supabase
                 const dataToSubmit = {
                     user_id: user.id,
                     name: bookingData.name.trim(),
@@ -329,24 +265,28 @@ const Book = () => {
                     insurance_requested: bookingData.insuranceRequested,
                     service_type: bookingData.serviceType,
                     payment_mode: bookingData.paymentMode,
-                    booking_status: 'Confirmed',
-                    // is_phone_otp_sent_at_booking: isOtpSent && bookingData.phone === lastOtpSentPhone, // Example: track if OTP was sent *for this specific number* at time of booking
+                    booking_status: 'Confirmed', // Default status
+                    // estimated_cost: 0, // Consider calculating or setting later
                 };
 
                 console.log("Submitting to Supabase:", dataToSubmit);
 
+                // Insert data into Supabase 'bookings' table
                 const { error: insertError } = await supabase
                     .from('bookings')
                     .insert([dataToSubmit]);
 
                 if (insertError) {
-                    throw new Error(`Booking failed: ${insertError.message}. Please try again.`);
+                    console.error('Supabase booking insert error:', insertError);
+                    throw new Error(`Booking failed: ${insertError.message}. Please try again.`); // Throw to be caught below
                 } else {
+                    // --- Submission Successful ---
                     console.log('Booking successful!');
-                    setIsSubmitSuccess(true);
+                    setIsSubmitSuccess(true); // Trigger success overlay
 
+                    // Reset form after a short delay
                     setTimeout(() => {
-                       setBookingData({
+                       setBookingData({ // Reset form fields
                             name: '', phone: '', email: '', pickupLocationType: '', pickupAddress: '',
                             dropLocationType: '', dropAddress: '', pickupDate: '', pickupTime: '',
                             trainNumber: '', trainName: '', pnrNumber: '', coachNumber: '', seatNumber: '',
@@ -354,54 +294,69 @@ const Book = () => {
                             specialItemsDescription: '', insuranceRequested: false, serviceType: '',
                             paymentMode: '',
                         });
-                        setErrors({});
-                        setSubmitError(null);
-                        setIsSubmitSuccess(false);
-                        setIsOtpSent(false); // Reset OTP sent status for the next booking
-                        setOtpError(null);
-                        setLastOtpSentPhone(null); // Clear last sent phone
-                        setIsSubmitting(false);
+                        setErrors({});             // Clear validation errors
+                        setSubmitError(null);      // Clear submission error message
+                        setIsSubmitSuccess(false); // Hide success overlay
+                        setIsSubmitting(false);    // Re-enable submit button
+                        // Optional: Redirect user after success
                         // navigate('/my-bookings');
-                    }, 3000);
+                    }, 3000); // 3-second delay for success message visibility
                 }
             } catch (err: any) {
+                // --- Handle Errors during Submission Process ---
                 console.error('Error during submission process:', err);
                 setSubmitError(err.message || 'An unexpected error occurred during booking.');
-                setIsSubmitting(false);
+                setIsSubmitting(false); // Ensure submitting state is reset on error
             }
         } else {
-            console.log("Validation failed. Errors:", errors);
-            setSubmitError("Please fix the errors marked in the form before submitting.");
+            // --- Validation Failed ---
+            console.log("Validation failed. Errors:", errors); // Log the actual errors object set by validateForm
+            setSubmitError("Please fix the errors marked in the form before submitting."); // Set general error message
+
+            // --- Scroll to the first error ---
+            // Get the keys of the current errors state
             const errorKeys = Object.keys(errors);
             if (errorKeys.length > 0) {
                 const firstErrorKey = errorKeys[0];
                 const elementToFocus = document.getElementById(firstErrorKey);
+
                 if (elementToFocus) {
+                    // Focus the element first (helps screen readers, often triggers browser's own scroll)
+                    // Use preventScroll: true because we want to control the scroll smoothly ourselves.
                     elementToFocus.focus({ preventScroll: true });
-                    elementToFocus.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+                    // Then, smoothly scroll the element into view, centered if possible.
+                    elementToFocus.scrollIntoView({
+                        behavior: 'smooth', // Use smooth scrolling
+                        block: 'center',    // Try to align vertically in the center
+                        inline: 'nearest'   // Align horizontally as needed
+                    });
+
+                    console.log(`Scrolled to the first error field: #${firstErrorKey}`);
+                } else {
+                    console.warn(`Could not find element with ID: #${firstErrorKey} to scroll to.`);
                 }
             }
+            // No need to set isSubmitting(false) here, as it wasn't set to true yet
         }
     }, [
-        bookingData,
-        errors,
-        validateForm,
-        navigate,
-        isAuthenticated,
-        isOtpSent, // Include for potential tracking in dataToSubmit
-        lastOtpSentPhone // Include for potential tracking in dataToSubmit
-    ]);
+        bookingData, // Depends on current form data
+        errors, // Depends on current errors (for scrolling logic)
+        validateForm, // The validation function itself
+        navigate, // For potential redirection
+        isAuthenticated // To check auth status
+    ]); // Added `errors` to dependencies for the scrolling logic
 
 
     // --- Render Logic ---
 
     // 1. Loading state
-    // ... (remains the same)
-     if (isLoadingAuth) {
+    if (isLoadingAuth) {
         return (
           <div className="flex justify-center items-center min-h-screen bg-gray-50">
             <div className="text-center">
-                 <svg className="animate-spin h-10 w-10 text-[#ff8c00] mx-auto mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                 <svg className="animate-spin h-10 w-10 text-[#ff8c00] mx-auto mb-4" /* ... */ >
+                    {/* ... spinner SVG paths ... */}
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                  </svg>
@@ -411,46 +366,36 @@ const Book = () => {
         );
     }
 
-
     // 2. Not authenticated -> Show Prompt
-    // ... (remains the same)
     if (!isAuthenticated) {
         return <PleaseLoginPrompt />;
     }
 
     // 3. Submission Success Overlay
-    // ... (remains the same)
-     if (isSubmitSuccess) {
+    if (isSubmitSuccess) {
         return (
           <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-green-50 text-center p-4">
              <GreenCheckmark />
             <h2 className="mt-6 text-2xl sm:text-3xl font-bold text-green-700">Booking Confirmed!</h2>
             <p className="mt-2 text-lg text-gray-600">Your BagEase booking is successful. Check your bookings page for details.</p>
+             {/* <button onClick={() => navigate('/my-bookings')} className="mt-4 px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">View My Bookings</button> */}
           </div>
         );
     }
 
     // 4. Authenticated, show the form
     const commonInputProps = (name: keyof typeof bookingData, isRequired = true) => ({
-         id: name,
+         id: name, // Crucial for the scroll-to-error functionality
         name: name,
         onChange: handleChange,
-        // Removed pr-28 from phone input's class definition
         className: `mt-1 block w-full px-3 py-2 bg-white border ${errors[name] ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm focus:outline-none focus:ring-1 focus:ring-[#ff8c00] focus:border-[#ff8c00] sm:text-sm disabled:bg-gray-100 disabled:cursor-not-allowed`,
-        disabled: isSubmitting, // Only disable inputs during final submission
+        disabled: isSubmitting,
         'aria-invalid': errors[name] ? "true" : "false",
-        'aria-describedby': errors[name] ? `${name}-error` : (name === 'phone' ? 'phone-otp-hint' : undefined), // Link phone hint
+        // Link error message to input for accessibility
+        'aria-describedby': errors[name] ? `${name}-error` : undefined,
+        // Add required attribute for browser built-in hints (optional but good practice)
+        // required: isRequired, // Can uncomment if you want browser validation hints too
     });
-
-    // Determine if Send OTP button should be enabled
-    const phoneRegexValid = /^\+?[1-9]\d{1,14}$/.test(bookingData.phone.trim());
-    const disableSendOtpButton = !phoneRegexValid || isSendingOtp || isSubmitting;
-
-    // Determine button text and status message
-    const otpButtonText = isSendingOtp ? 'Sending...' : (isOtpSent && bookingData.phone === lastOtpSentPhone ? 'Resend OTP' : 'Send OTP');
-    const otpStatusMessage = isOtpSent && bookingData.phone === lastOtpSentPhone && !otpError
-                             ? `OTP sent successfully to ${lastOtpSentPhone}.`
-                             : otpError || ''; // Show error if exists, otherwise empty
 
     return (
         <div className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
@@ -462,11 +407,13 @@ const Book = () => {
                     Fill in the details below to arrange your baggage transfer.
                 </p>
 
+                {/* Use novalidate to prevent default browser validation UI, relying on ours */}
                 <form onSubmit={handleSubmit} noValidate className="bg-white p-6 sm:p-8 rounded-lg shadow-lg space-y-8">
-                     {/* General Submission Error Display */}
+                     {/* General Submission Error */}
                     {submitError && (
+                        // Ensure this error display has an ID if you want to potentially scroll to it too
                         <div id="submit-error-message" className="p-3 bg-red-100 border-l-4 border-red-500 text-red-700 rounded-md text-sm" role="alert">
-                            <p className="font-bold">Booking Error</p>
+                            <p className="font-bold">Oops! Something went wrong.</p>
                             <p>{submitError}</p>
                         </div>
                     )}
@@ -477,29 +424,18 @@ const Book = () => {
                             1. Your Contact Information
                         </legend>
                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            {/* Name Field */}
                             <div>
                                 <label htmlFor="name" className="block text-sm font-medium text-gray-700">Full Name</label>
                                 <input type="text" {...commonInputProps('name', true)} value={bookingData.name} placeholder="e.g., Priya Sharma" autoComplete="name" />
+                                {/* Ensure error message ID matches aria-describedby */}
                                 {errors.name && <p id="name-error" className="mt-1 text-xs text-red-600">{errors.name}</p>}
                             </div>
-
-                            {/* Phone Field - Button removed from here */}
                             <div>
-                                <label htmlFor="phone" className="block text-sm font-medium text-gray-700">Phone Number (with country code)</label>
-                                <input
-                                    type="tel"
-                                    {...commonInputProps('phone', true)}
-                                    value={bookingData.phone}
-                                    placeholder="e.g., +919876543210"
-                                    autoComplete="tel"
-                                />
-                                {/* Phone validation error */}
+                                <label htmlFor="phone" className="block text-sm font-medium text-gray-700">Phone Number</label>
+                                <input type="tel" {...commonInputProps('phone', true)} value={bookingData.phone} placeholder="e.g., 9876543210" autoComplete="tel" />
                                 {errors.phone && <p id="phone-error" className="mt-1 text-xs text-red-600">{errors.phone}</p>}
-                                <p id="phone-otp-hint" className="mt-1 text-xs text-gray-500">We'll send a one-time password to this number for verification.</p>
                             </div>
                         </div>
-                         {/* Email Field */}
                         <div>
                             <label htmlFor="email" className="block text-sm font-medium text-gray-700">Email Address</label>
                             <input type="email" {...commonInputProps('email', true)} value={bookingData.email} placeholder="you@example.com" autoComplete="email"/>
@@ -508,12 +444,11 @@ const Book = () => {
                     </fieldset>
 
                     {/* === Section 2: Pickup & Drop-Off Details === */}
-                    {/* ... (Remains the same) ... */}
-                     <fieldset className="space-y-6 border-t border-gray-200 pt-6">
+                    <fieldset className="space-y-6 border-t border-gray-200 pt-6">
                          <legend className="text-lg font-semibold text-gray-800 border-b border-gray-200 pb-2 mb-4">
                             2. Pickup & Drop-Off Details
                         </legend>
-                        {/* ... Pickup/Dropoff fields, Date/Time, Train Details ... */}
+                          {/* Pickup Location */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div>
                                 <label htmlFor="pickupLocationType" className="block text-sm font-medium text-gray-700">Pickup From</label>
@@ -533,6 +468,8 @@ const Book = () => {
                                 {errors.pickupAddress && <p id="pickupAddress-error" className="mt-1 text-xs text-red-600">{errors.pickupAddress}</p>}
                             </div>
                         </div>
+
+                        {/* Drop-off Location */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                              <div>
                                 <label htmlFor="dropLocationType" className="block text-sm font-medium text-gray-700">Drop-off At</label>
@@ -551,6 +488,8 @@ const Book = () => {
                                 {errors.dropAddress && <p id="dropAddress-error" className="mt-1 text-xs text-red-600">{errors.dropAddress}</p>}
                             </div>
                         </div>
+
+                        {/* Date & Time */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div>
                                 <label htmlFor="pickupDate" className="block text-sm font-medium text-gray-700">Pickup Date</label>
@@ -563,6 +502,8 @@ const Book = () => {
                                 {errors.pickupTime && <p id="pickupTime-error" className="mt-1 text-xs text-red-600">{errors.pickupTime}</p>}
                             </div>
                         </div>
+
+                        {/* Train Details */}
                         <h3 className="text-md font-medium text-gray-700 pt-4 border-t border-gray-100 mt-4">Train Details (If Applicable)</h3>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                            <div>
@@ -573,19 +514,23 @@ const Book = () => {
                              <div>
                                 <label htmlFor="trainName" className="block text-sm font-medium text-gray-700">Train Name <span className="text-xs text-gray-500">(Optional)</span></label>
                                 <input type="text" {...commonInputProps('trainName', false)} value={bookingData.trainName} placeholder="e.g., Rajdhani Express" />
+                                {/* No error display needed for optional field */}
                             </div>
                         </div>
                          <div className="relative">
                             <label htmlFor="pnrNumber" className="block text-sm font-medium text-gray-700">PNR Number <span className="text-xs text-gray-500">(Optional)</span></label>
                             <input
                                 type="text"
-                                {...commonInputProps('pnrNumber', false)}
+                                {...commonInputProps('pnrNumber', false)} // PNR explicitly optional
                                 value={bookingData.pnrNumber}
                                 placeholder="10-digit PNR"
                                 maxLength={10}
                             />
+                            {/* <button type="button" onClick={handlePnrFetch} ... >Fetch</button> */}
                             {errors.pnrNumber && <p id="pnrNumber-error" className="mt-1 text-xs text-red-600">{errors.pnrNumber}</p>}
                         </div>
+
+                        {/* Coach/Seat conditionally required */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                              <div>
                                 <label htmlFor="coachNumber" className="block text-sm font-medium text-gray-700">
@@ -612,6 +557,8 @@ const Book = () => {
                                 {errors.seatNumber && <p id="seatNumber-error" className="mt-1 text-xs text-red-600">{errors.seatNumber}</p>}
                             </div>
                         </div>
+
+                        {/* Delivery Preference */}
                         <div>
                             <label htmlFor="deliveryPreference" className="block text-sm font-medium text-gray-700">Delivery Preference at Destination Station</label>
                             <select {...commonInputProps('deliveryPreference', true)} value={bookingData.deliveryPreference}>
@@ -625,12 +572,10 @@ const Book = () => {
                     </fieldset>
 
                     {/* === Section 3: Luggage Details === */}
-                    {/* ... (Remains the same) ... */}
-                     <fieldset className="space-y-6 border-t border-gray-200 pt-6">
+                    <fieldset className="space-y-6 border-t border-gray-200 pt-6">
                         <legend className="text-lg font-semibold text-gray-800 border-b border-gray-200 pb-2 mb-4">
                             3. Luggage Details
                         </legend>
-                        {/* ... Number of Bags, Weight, Special Notes, Insurance ... */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div>
                                 <label htmlFor="numberOfBags" className="block text-sm font-medium text-gray-700">Number of Bags</label>
@@ -656,6 +601,7 @@ const Book = () => {
                                 rows={3}
                                 placeholder="e.g., Fragile items inside, handle with care, contains electronics..."
                              ></textarea>
+                             {/* No error display needed for optional field */}
                         </div>
                         <div className="relative flex items-start">
                             <div className="flex items-center h-5">
@@ -673,18 +619,16 @@ const Book = () => {
                                 <label htmlFor="insuranceRequested" className="font-medium text-gray-700">
                                     Add Luggage Insurance?
                                 </label>
-                                <p className="text-xs text-gray-500">(Optional, additional charges may apply)</p>
+                                <p className="text-xs text-gray-500">(Optional, additional charges may apply based on declared value)</p>
                             </div>
                         </div>
                     </fieldset>
 
                     {/* === Section 4: Service & Payment === */}
-                    {/* ... (Remains the same) ... */}
-                     <fieldset className="space-y-6 border-t border-gray-200 pt-6">
+                    <fieldset className="space-y-6 border-t border-gray-200 pt-6">
                         <legend className="text-lg font-semibold text-gray-800 border-b border-gray-200 pb-2 mb-4">
                             4. Service & Payment
                         </legend>
-                        {/* ... Service Speed, Payment Mode ... */}
                            <div>
                             <label htmlFor="serviceType" className="block text-sm font-medium text-gray-700">Service Speed</label>
                             <select {...commonInputProps('serviceType', true)} value={bookingData.serviceType}>
@@ -694,6 +638,8 @@ const Book = () => {
                             </select>
                              {errors.serviceType && <p id="serviceType-error" className="mt-1 text-xs text-red-600">{errors.serviceType}</p>}
                         </div>
+                        {/* Estimated Cost Placeholder (Maybe implement later) */}
+                        {/* <div className="p-3 bg-blue-50 border border-blue-200 rounded-md"> ... </div> */}
                         <div>
                             <label htmlFor="paymentMode" className="block text-sm font-medium text-gray-700">Preferred Payment Method</label>
                             <select {...commonInputProps('paymentMode', true)} value={bookingData.paymentMode}>
@@ -708,40 +654,6 @@ const Book = () => {
                         </div>
                     </fieldset>
 
-                    {/* === OTP Send Area === */}
-                    <div className="pt-5 border-t border-gray-200">
-                         <div className="text-center mb-4"> {/* Centered container for button and status */}
-                             {/* OTP Status Message */}
-                             {otpStatusMessage && (
-                                 <p id="otp-status-message" className={`text-sm mb-2 ${otpError ? 'text-red-600' : 'text-green-600'}`} role={otpError ? "alert" : "status"}>
-                                     {otpStatusMessage}
-                                 </p>
-                             )}
-
-                             {/* Send/Resend OTP Button */}
-                            <button
-                                type="button"
-                                onClick={handleSendOtp}
-                                disabled={disableSendOtpButton}
-                                className={`inline-flex items-center justify-center px-6 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm ${
-                                    disableSendOtpButton
-                                    ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                                    : 'bg-[#f0ad4e] text-white hover:bg-[#ec971f] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#f0ad4e]' // Using a slightly different orange for distinction
-                                } transition duration-150 ease-in-out w-full sm:w-auto`} // Full width on small screens, auto on larger
-                                aria-describedby={otpStatusMessage ? "otp-status-message" : undefined} // Link button to status for screen readers
-                            >
-                                {isSendingOtp && (
-                                    <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                    </svg>
-                                )}
-                                {otpButtonText}
-                            </button>
-                        </div>
-                    </div>
-
-
                     {/* === Submit Button === */}
                     <div className="pt-5 border-t border-gray-200">
                         <button
@@ -752,19 +664,19 @@ const Book = () => {
                             {isSubmitting ? (
                                 <>
                                     <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" /* ... */ >
+                                         {/* ... spinner SVG paths ... */}
                                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                                     </svg>
                                     Processing Booking...
                                 </>
                             ) : (
-                                'Confirm Booking & Proceed'
+                                'Confirm & Proceed to Payment' // Or 'Confirm Booking'
                             )}
                         </button>
                     </div>
 
                      {/* --- Footer Info --- */}
-                     {/* ... (Remains the same) ... */}
                      <div className="text-center text-xs text-gray-500 pt-4">
                          <p>By clicking confirm, you agree to BagEase's <a href="/terms" target="_blank" rel="noopener noreferrer" className="text-[#ff8c00] hover:underline">Terms of Service</a> and <a href="/privacy" target="_blank" rel="noopener noreferrer" className="text-[#ff8c00] hover:underline">Privacy Policy</a>.</p>
                          <p className="mt-1">Need help? Call us at <a href="tel:+91XXXXXXXXXX" className="text-[#ff8c00] hover:underline">+91-XXX-XXXXXXX</a> or visit our Help Center.</p>

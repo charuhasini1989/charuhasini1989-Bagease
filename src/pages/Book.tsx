@@ -450,7 +450,7 @@ const Book = () => {
                         </div>
                     )}
 
-                    {/* === Section 1: User Information === */} (No changes in fields)
+                    {/* === Section 1: User Information === */} 
                     <fieldset className="space-y-6">
                        {/* ... fields ... */}
                          <legend className="text-lg font-semibold text-gray-800 border-b border-gray-200 pb-2 mb-4">
@@ -475,7 +475,7 @@ const Book = () => {
                         </div>
                     </fieldset>
 
-                    {/* === Section 2: Pickup & Drop-Off Details === */} (No changes in fields)
+                    {/* === Section 2: Pickup & Drop-Off Details === */} 
                     <fieldset className="space-y-6 border-t border-gray-200 pt-6">
                          {/* ... fields ... */}
                            <legend className="text-lg font-semibold text-gray-800 border-b border-gray-200 pb-2 mb-4">
@@ -600,7 +600,7 @@ const Book = () => {
                         </div>
                     </fieldset>
 
-                    {/* === Section 3: Luggage Details === */} (No changes in fields, insurance already removed)
+                    {/* === Section 3: Luggage Details === */} 
                     <fieldset className="space-y-6 border-t border-gray-200 pt-6">
                          {/* ... fields ... */}
                           <legend className="text-lg font-semibold text-gray-800 border-b border-gray-200 pb-2 mb-4">
@@ -634,7 +634,7 @@ const Book = () => {
                         </div>
                     </fieldset>
 
-                    {/* === Section 4: Service & Payment === */} (No changes in fields, cost display already present)
+                    {/* === Section 4: Service & Payment === */} 
                     <fieldset className="space-y-6 border-t border-gray-200 pt-6">
                          {/* ... fields ... */}
                            <legend className="text-lg font-semibold text-gray-800 border-b border-gray-200 pb-2 mb-4">

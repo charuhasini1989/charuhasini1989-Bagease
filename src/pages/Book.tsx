@@ -720,7 +720,7 @@ const Book = () => {
                         )}
                     </div>
 
-                     {/* --- Footer Info --- */} (No changes)
+                     {/* --- Footer Info --- */}
                      <div className="text-center text-xs text-gray-500 pt-4">
                          <p>By clicking confirm, you agree to BagEase's <a href="/terms" target="_blank" rel="noopener noreferrer" className="text-[#ff8c00] hover:underline">Terms of Service</a> and <a href="/privacy" target="_blank" rel="noopener noreferrer" className="text-[#ff8c00] hover:underline">Privacy Policy</a>.</p>
                          <p className="mt-1">Need help? Call us at <a href="tel:+91XXXXXXXXXX" className="text-[#ff8c00] hover:underline">+91-XXX-XXXXXXX</a> or visit our Help Center.</p>

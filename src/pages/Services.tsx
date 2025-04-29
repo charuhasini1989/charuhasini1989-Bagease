@@ -58,7 +58,7 @@ const Services = () => {
         <div className="bg-white p-6 rounded-lg shadow-lg">
           <div className="flex items-center mb-4">
             <Shield className="w-8 h-8 text-black mr-3" />
-            <h2 className="text-2xl font-semibold">Premium Protection</h2>
+            <h2 className="text-2xl font-semibold">Promised Insurance</h2>
           </div>
           <p className="text-gray-600 mb-4">
             Complete protection for your belongings with our comprehensive insurance coverage.

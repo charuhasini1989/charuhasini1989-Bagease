@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react'; // Added useMemo
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../supabase';
 
@@ -50,7 +50,9 @@ const Book = () => {
         dropLocationType: '', dropAddress: '', pickupDate: '', pickupTime: '',
         trainNumber: '', trainName: '', pnrNumber: '', coachNumber: '', seatNumber: '',
         deliveryPreference: '', numberOfBags: '1', weightCategory: '',
-        specialItemsDescription: '', insuranceRequested: false, serviceType: '',
+        specialItemsDescription: '',
+        // insuranceRequested: false, // <<< REMOVED insuranceRequested state
+        serviceType: '',
         paymentMode: '',
     });
 
@@ -125,6 +127,46 @@ const Book = () => {
     }, []);
     const { minDate, minTimeForToday } = getMinDateTime();
 
+    // --- NEW: Cost Calculation Logic ---
+    const calculateEstimatedCost = useCallback((data: typeof bookingData): number | null => {
+        const baseCost = 50; // Base cost per booking
+        const costPerBagAfterFirst = 30; // Cost for each additional bag
+        const weightSurcharges = {
+            '0-10kg': 0,
+            '10-20kg': 25,
+            '20kg+': 50,
+        };
+        const serviceMultipliers = {
+            'Standard': 1.0,
+            'Express': 1.5,
+        };
+
+        const bags = parseInt(data.numberOfBags, 10);
+        const weightKey = data.weightCategory as keyof typeof weightSurcharges;
+        const serviceKey = data.serviceType as keyof typeof serviceMultipliers;
+
+        // Need bags, weight, and service type selected to calculate
+        if (isNaN(bags) || bags <= 0 || !data.weightCategory || !data.serviceType) {
+            return null; // Not enough info to calculate
+        }
+
+        const bagCost = bags > 1 ? (bags - 1) * costPerBagAfterFirst : 0;
+        const weightSurcharge = weightSurcharges[weightKey] ?? 0; // Default to 0 if category invalid
+        const serviceMultiplier = serviceMultipliers[serviceKey] ?? 1.0; // Default to standard if type invalid
+
+        const totalCost = (baseCost + bagCost + weightSurcharge) * serviceMultiplier;
+
+        return totalCost;
+    }, []); // Depends only on the structure of data, not its values directly here
+
+    // Use useMemo to avoid recalculating on every render unless relevant bookingData changes
+    const estimatedCost = useMemo(() => calculateEstimatedCost(bookingData), [
+        bookingData.numberOfBags,
+        bookingData.weightCategory,
+        bookingData.serviceType,
+        calculateEstimatedCost // Add the function itself as a dependency
+    ]);
+
 
     // --- Validation Function ---
     const validateForm = useCallback((): boolean => {
@@ -169,7 +211,7 @@ const Book = () => {
         if (isNaN(bags) || bags <= 0) newErrors.numberOfBags = 'Enter a valid number of bags (1 or more)';
         if (!data.weightCategory) newErrors.weightCategory = 'Select a weight category';
 
-        // 5. Pricing & Payment (Assuming Section 4 was a typo)
+        // 4. Service & Payment (Section numbering adjusted)
         if (!data.serviceType) newErrors.serviceType = 'Select a service type';
         if (!data.paymentMode) newErrors.paymentMode = 'Select a payment mode';
 
@@ -182,23 +224,22 @@ const Book = () => {
     const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
         const { name, value, type } = e.target;
 
-        // Handle checkbox separately
+        // Handle checkbox separately (no longer needed for insurance, but kept for potential future use)
         if (type === 'checkbox') {
-            const { checked } = e.target as HTMLInputElement;
-            setBookingData(prevData => ({ ...prevData, [name]: checked }));
+            // This block is now unused for insurance but kept structurally
+             const { checked } = e.target as HTMLInputElement;
+             setBookingData(prevData => ({ ...prevData, [name]: checked }));
         } else {
             setBookingData(prevData => ({ ...prevData, [name]: value }));
         }
 
         // Clear error for the field being changed (if it exists)
         setErrors(prevErrors => {
-            // Only create a new object if the error needs to be removed
             if (prevErrors[name]) {
                 const updatedErrors = { ...prevErrors };
                 delete updatedErrors[name];
                 return updatedErrors;
             }
-            // Otherwise, return the original errors object (optimization)
             return prevErrors;
         });
     }, []); // No dependencies needed if it only uses e.target
@@ -215,25 +256,19 @@ const Book = () => {
 
     // --- Handle Submit ---
     const handleSubmit = useCallback(async (e: React.FormEvent) => {
-        e.preventDefault(); // Prevent default form submission
+        e.preventDefault();
 
         if (!isAuthenticated) {
              setSubmitError("You must be logged in to submit a booking.");
-             // Optionally, trigger the login sidebar here too if desired
-             // const event = new CustomEvent('openLoginSidebar');
-             // window.dispatchEvent(event);
              return;
         }
 
-        setSubmitError(null);      // Clear previous submission errors
-        setIsSubmitSuccess(false); // Reset success state
+        setSubmitError(null);
+        setIsSubmitSuccess(false);
 
-        // --- Run Validation ---
-        // Note: validateForm now also updates the `errors` state internally
         const isFormValid = validateForm();
 
         if (isFormValid) {
-            // --- Validation Passed: Proceed with Submission ---
             setIsSubmitting(true);
             try {
                  const { data: { user } } = await supabase.auth.getUser();
@@ -262,90 +297,74 @@ const Book = () => {
                     number_of_bags: parseInt(bookingData.numberOfBags, 10),
                     weight_category: bookingData.weightCategory,
                     special_items_description: bookingData.specialItemsDescription.trim() || null,
-                    insurance_requested: bookingData.insuranceRequested,
+                    // insurance_requested: bookingData.insuranceRequested, // <<< REMOVED insuranceRequested from submission
                     service_type: bookingData.serviceType,
                     payment_mode: bookingData.paymentMode,
-                    booking_status: 'Confirmed', // Default status
-                    // estimated_cost: 0, // Consider calculating or setting later
+                    booking_status: 'Confirmed',
+                    // NEW: Store the calculated cost if desired (optional)
+                    estimated_cost: estimatedCost, // Store the calculated estimate
                 };
 
                 console.log("Submitting to Supabase:", dataToSubmit);
 
-                // Insert data into Supabase 'bookings' table
                 const { error: insertError } = await supabase
                     .from('bookings')
                     .insert([dataToSubmit]);
 
                 if (insertError) {
                     console.error('Supabase booking insert error:', insertError);
-                    throw new Error(`Booking failed: ${insertError.message}. Please try again.`); // Throw to be caught below
+                    throw new Error(`Booking failed: ${insertError.message}. Please try again.`);
                 } else {
-                    // --- Submission Successful ---
                     console.log('Booking successful!');
-                    setIsSubmitSuccess(true); // Trigger success overlay
+                    setIsSubmitSuccess(true);
 
-                    // Reset form after a short delay
                     setTimeout(() => {
-                       setBookingData({ // Reset form fields
+                       setBookingData({
                             name: '', phone: '', email: '', pickupLocationType: '', pickupAddress: '',
                             dropLocationType: '', dropAddress: '', pickupDate: '', pickupTime: '',
                             trainNumber: '', trainName: '', pnrNumber: '', coachNumber: '', seatNumber: '',
                             deliveryPreference: '', numberOfBags: '1', weightCategory: '',
-                            specialItemsDescription: '', insuranceRequested: false, serviceType: '',
+                            specialItemsDescription: '',
+                            // insuranceRequested: false, // <<< REMOVED from reset
+                            serviceType: '',
                             paymentMode: '',
                         });
-                        setErrors({});             // Clear validation errors
-                        setSubmitError(null);      // Clear submission error message
-                        setIsSubmitSuccess(false); // Hide success overlay
-                        setIsSubmitting(false);    // Re-enable submit button
-                        // Optional: Redirect user after success
+                        setErrors({});
+                        setSubmitError(null);
+                        setIsSubmitSuccess(false);
+                        setIsSubmitting(false);
                         // navigate('/my-bookings');
-                    }, 3000); // 3-second delay for success message visibility
+                    }, 3000);
                 }
             } catch (err: any) {
-                // --- Handle Errors during Submission Process ---
                 console.error('Error during submission process:', err);
                 setSubmitError(err.message || 'An unexpected error occurred during booking.');
-                setIsSubmitting(false); // Ensure submitting state is reset on error
+                setIsSubmitting(false);
             }
         } else {
-            // --- Validation Failed ---
-            console.log("Validation failed. Errors:", errors); // Log the actual errors object set by validateForm
-            setSubmitError("Please fix the errors marked in the form before submitting."); // Set general error message
-
-            // --- Scroll to the first error ---
-            // Get the keys of the current errors state
+            console.log("Validation failed. Errors:", errors);
+            setSubmitError("Please fix the errors marked in the form before submitting.");
             const errorKeys = Object.keys(errors);
             if (errorKeys.length > 0) {
                 const firstErrorKey = errorKeys[0];
                 const elementToFocus = document.getElementById(firstErrorKey);
-
                 if (elementToFocus) {
-                    // Focus the element first (helps screen readers, often triggers browser's own scroll)
-                    // Use preventScroll: true because we want to control the scroll smoothly ourselves.
                     elementToFocus.focus({ preventScroll: true });
-
-                    // Then, smoothly scroll the element into view, centered if possible.
-                    elementToFocus.scrollIntoView({
-                        behavior: 'smooth', // Use smooth scrolling
-                        block: 'center',    // Try to align vertically in the center
-                        inline: 'nearest'   // Align horizontally as needed
-                    });
-
+                    elementToFocus.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
                     console.log(`Scrolled to the first error field: #${firstErrorKey}`);
                 } else {
                     console.warn(`Could not find element with ID: #${firstErrorKey} to scroll to.`);
                 }
             }
-            // No need to set isSubmitting(false) here, as it wasn't set to true yet
         }
     }, [
-        bookingData, // Depends on current form data
-        errors, // Depends on current errors (for scrolling logic)
-        validateForm, // The validation function itself
-        navigate, // For potential redirection
-        isAuthenticated // To check auth status
-    ]); // Added `errors` to dependencies for the scrolling logic
+        bookingData,
+        errors,
+        validateForm,
+        navigate,
+        isAuthenticated,
+        estimatedCost // <<< ADDED estimatedCost dependency
+    ]);
 
 
     // --- Render Logic ---
@@ -355,8 +374,7 @@ const Book = () => {
         return (
           <div className="flex justify-center items-center min-h-screen bg-gray-50">
             <div className="text-center">
-                 <svg className="animate-spin h-10 w-10 text-[#ff8c00] mx-auto mb-4" /* ... */ >
-                    {/* ... spinner SVG paths ... */}
+                 <svg className="animate-spin h-10 w-10 text-[#ff8c00] mx-auto mb-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                  </svg>
@@ -378,23 +396,19 @@ const Book = () => {
              <GreenCheckmark />
             <h2 className="mt-6 text-2xl sm:text-3xl font-bold text-green-700">Booking Confirmed!</h2>
             <p className="mt-2 text-lg text-gray-600">Your BagEase booking is successful. Check your bookings page for details.</p>
-             {/* <button onClick={() => navigate('/my-bookings')} className="mt-4 px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">View My Bookings</button> */}
           </div>
         );
     }
 
     // 4. Authenticated, show the form
     const commonInputProps = (name: keyof typeof bookingData, isRequired = true) => ({
-         id: name, // Crucial for the scroll-to-error functionality
+         id: name,
         name: name,
         onChange: handleChange,
         className: `mt-1 block w-full px-3 py-2 bg-white border ${errors[name] ? 'border-red-500' : 'border-gray-300'} rounded-md shadow-sm focus:outline-none focus:ring-1 focus:ring-[#ff8c00] focus:border-[#ff8c00] sm:text-sm disabled:bg-gray-100 disabled:cursor-not-allowed`,
         disabled: isSubmitting,
         'aria-invalid': errors[name] ? "true" : "false",
-        // Link error message to input for accessibility
         'aria-describedby': errors[name] ? `${name}-error` : undefined,
-        // Add required attribute for browser built-in hints (optional but good practice)
-        // required: isRequired, // Can uncomment if you want browser validation hints too
     });
 
     return (
@@ -407,11 +421,8 @@ const Book = () => {
                     Fill in the details below to arrange your baggage transfer.
                 </p>
 
-                {/* Use novalidate to prevent default browser validation UI, relying on ours */}
                 <form onSubmit={handleSubmit} noValidate className="bg-white p-6 sm:p-8 rounded-lg shadow-lg space-y-8">
-                     {/* General Submission Error */}
                     {submitError && (
-                        // Ensure this error display has an ID if you want to potentially scroll to it too
                         <div id="submit-error-message" className="p-3 bg-red-100 border-l-4 border-red-500 text-red-700 rounded-md text-sm" role="alert">
                             <p className="font-bold">Oops! Something went wrong.</p>
                             <p>{submitError}</p>
@@ -427,7 +438,6 @@ const Book = () => {
                             <div>
                                 <label htmlFor="name" className="block text-sm font-medium text-gray-700">Full Name</label>
                                 <input type="text" {...commonInputProps('name', true)} value={bookingData.name} placeholder="e.g., Priya Sharma" autoComplete="name" />
-                                {/* Ensure error message ID matches aria-describedby */}
                                 {errors.name && <p id="name-error" className="mt-1 text-xs text-red-600">{errors.name}</p>}
                             </div>
                             <div>
@@ -448,7 +458,6 @@ const Book = () => {
                          <legend className="text-lg font-semibold text-gray-800 border-b border-gray-200 pb-2 mb-4">
                             2. Pickup & Drop-Off Details
                         </legend>
-                          {/* Pickup Location */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div>
                                 <label htmlFor="pickupLocationType" className="block text-sm font-medium text-gray-700">Pickup From</label>
@@ -468,8 +477,6 @@ const Book = () => {
                                 {errors.pickupAddress && <p id="pickupAddress-error" className="mt-1 text-xs text-red-600">{errors.pickupAddress}</p>}
                             </div>
                         </div>
-
-                        {/* Drop-off Location */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                              <div>
                                 <label htmlFor="dropLocationType" className="block text-sm font-medium text-gray-700">Drop-off At</label>
@@ -488,8 +495,6 @@ const Book = () => {
                                 {errors.dropAddress && <p id="dropAddress-error" className="mt-1 text-xs text-red-600">{errors.dropAddress}</p>}
                             </div>
                         </div>
-
-                        {/* Date & Time */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div>
                                 <label htmlFor="pickupDate" className="block text-sm font-medium text-gray-700">Pickup Date</label>
@@ -502,8 +507,6 @@ const Book = () => {
                                 {errors.pickupTime && <p id="pickupTime-error" className="mt-1 text-xs text-red-600">{errors.pickupTime}</p>}
                             </div>
                         </div>
-
-                        {/* Train Details */}
                         <h3 className="text-md font-medium text-gray-700 pt-4 border-t border-gray-100 mt-4">Train Details (If Applicable)</h3>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                            <div>
@@ -514,23 +517,19 @@ const Book = () => {
                              <div>
                                 <label htmlFor="trainName" className="block text-sm font-medium text-gray-700">Train Name <span className="text-xs text-gray-500">(Optional)</span></label>
                                 <input type="text" {...commonInputProps('trainName', false)} value={bookingData.trainName} placeholder="e.g., Rajdhani Express" />
-                                {/* No error display needed for optional field */}
-                            </div>
+                             </div>
                         </div>
                          <div className="relative">
                             <label htmlFor="pnrNumber" className="block text-sm font-medium text-gray-700">PNR Number <span className="text-xs text-gray-500">(Optional)</span></label>
                             <input
                                 type="text"
-                                {...commonInputProps('pnrNumber', false)} // PNR explicitly optional
+                                {...commonInputProps('pnrNumber', false)}
                                 value={bookingData.pnrNumber}
                                 placeholder="10-digit PNR"
                                 maxLength={10}
                             />
-                            {/* <button type="button" onClick={handlePnrFetch} ... >Fetch</button> */}
                             {errors.pnrNumber && <p id="pnrNumber-error" className="mt-1 text-xs text-red-600">{errors.pnrNumber}</p>}
                         </div>
-
-                        {/* Coach/Seat conditionally required */}
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                              <div>
                                 <label htmlFor="coachNumber" className="block text-sm font-medium text-gray-700">
@@ -557,8 +556,6 @@ const Book = () => {
                                 {errors.seatNumber && <p id="seatNumber-error" className="mt-1 text-xs text-red-600">{errors.seatNumber}</p>}
                             </div>
                         </div>
-
-                        {/* Delivery Preference */}
                         <div>
                             <label htmlFor="deliveryPreference" className="block text-sm font-medium text-gray-700">Delivery Preference at Destination Station</label>
                             <select {...commonInputProps('deliveryPreference', true)} value={bookingData.deliveryPreference}>
@@ -601,8 +598,8 @@ const Book = () => {
                                 rows={3}
                                 placeholder="e.g., Fragile items inside, handle with care, contains electronics..."
                              ></textarea>
-                             {/* No error display needed for optional field */}
                         </div>
+                        {/* --- REMOVED Insurance Checkbox Section ---
                         <div className="relative flex items-start">
                             <div className="flex items-center h-5">
                                <input
@@ -622,6 +619,7 @@ const Book = () => {
                                 <p className="text-xs text-gray-500">(Optional, additional charges may apply based on declared value)</p>
                             </div>
                         </div>
+                        */}
                     </fieldset>
 
                     {/* === Section 4: Service & Payment === */}
@@ -638,8 +636,32 @@ const Book = () => {
                             </select>
                              {errors.serviceType && <p id="serviceType-error" className="mt-1 text-xs text-red-600">{errors.serviceType}</p>}
                         </div>
-                        {/* Estimated Cost Placeholder (Maybe implement later) */}
-                        {/* <div className="p-3 bg-blue-50 border border-blue-200 rounded-md"> ... </div> */}
+
+                         {/* === NEW: Estimated Cost Display & Trust Message === */}
+                        <div className="p-4 bg-blue-50 border border-blue-200 rounded-md space-y-2">
+                            <div className="flex justify-between items-center">
+                                <span className="text-sm font-medium text-blue-800">Estimated Cost:</span>
+                                <span className="text-lg font-bold text-blue-900">
+                                    {estimatedCost !== null
+                                        ? `₹ ${estimatedCost.toFixed(2)}`
+                                        : <span className="text-sm font-normal text-gray-500">Select options above</span>
+                                    }
+                                </span>
+                            </div>
+                             <div className="flex items-start space-x-2 text-xs text-blue-700">
+                                <svg className="w-4 h-4 flex-shrink-0 mt-0.5 text-green-600" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                                </svg>
+                                <span>
+                                    Includes basic coverage for peace of mind. We handle your luggage with utmost care and responsibility.
+                                </span>
+                            </div>
+                             <p className="text-xs text-gray-500 italic mt-1">
+                                Final price may vary slightly based on exact details and any promotions.
+                            </p>
+                        </div>
+                        {/* =============================================== */}
+
                         <div>
                             <label htmlFor="paymentMode" className="block text-sm font-medium text-gray-700">Preferred Payment Method</label>
                             <select {...commonInputProps('paymentMode', true)} value={bookingData.paymentMode}>
@@ -659,19 +681,21 @@ const Book = () => {
                         <button
                             type="submit"
                             className="group relative w-full flex justify-center py-3 px-4 border border-transparent text-base font-medium rounded-md text-white bg-[#ff8c00] hover:bg-[#e07b00] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#ff8c00] disabled:opacity-60 disabled:cursor-wait transition duration-150 ease-in-out"
-                            disabled={isSubmitting || !isAuthenticated}
+                            disabled={isSubmitting || !isAuthenticated || estimatedCost === null} // <<< Disable if cost isn't calculated yet
                         >
                             {isSubmitting ? (
                                 <>
-                                    <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" /* ... */ >
-                                         {/* ... spinner SVG paths ... */}
+                                    <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                                     </svg>
                                     Processing Booking...
                                 </>
                             ) : (
-                                'Confirm & Proceed to Payment' // Or 'Confirm Booking'
+                                // Conditionally show cost on button if calculated
+                                estimatedCost !== null
+                                    ? `Confirm Booking & Pay ₹${estimatedCost.toFixed(2)}`
+                                    : 'Confirm Booking' // Or 'Fill Details to See Price'
                             )}
                         </button>
                     </div>

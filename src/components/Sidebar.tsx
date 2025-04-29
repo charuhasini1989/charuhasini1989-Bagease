@@ -691,7 +691,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
                                                 referrerPolicy="no-referrer-when-downgrade"
                                                 src="https://www.google.com/maps/embed?pb=!1m28!1m12!1m3!1d7780448.910832964!2d78.09693635583463!3d17.52679556328318!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!4m13!3e6!4m5!1s0x3a39431389e6973f%3A0x92d9c20395498468!2sVisakhapatnam%2C%20Andhra%20Pradesh!3m2!1d17.6868159!2d83.2184815!4m5!1s0x3bcb99daeaebd2c7%3A0xae93b78392bafbc2!2sHyderabad%2C%20Telangana!3m2!1d17.385044!2d78.486671!5e0!3m2!1sen!2sin!4v1699123456789" // Example embed URL - replace if needed
                                             ></iframe>
-                                             <p className="mt-1 text-xs text-gray-500 text-center">Map shows general route Visakhapatnam to Hyderabad.</p>
+                                             <p className="mt-1 text-xs text-gray-500 text-center">Visakhapatnam to Hyderabad.</p>
                                         </div>
                                         {/* --- END: Mini Map Integration --- */}
 

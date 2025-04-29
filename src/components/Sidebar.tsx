@@ -42,6 +42,7 @@ interface Booking {
     train_number?: string | null;
     pnr_number?: string | null;
     // Add any other fields from your 'bookings' table you want to display
+    user_id?: string; // Ensure user_id is part of the type if you fetch it or need it
 }
 // --- NEW: Booking Data Type --- END
 
@@ -61,7 +62,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
   const [feedback, setFeedback] = useState<FeedbackMessage | null>(null);
   const [loading, setLoading] = useState<boolean>(true); // Overall loading (auth primarily)
   const [isSigningUp, setIsSigningUp] = useState<boolean>(false);
-  const [activeSection, setActiveSection] = useState<string>('');
+  const [activeSection, setActiveSection] = useState<string>(''); // Initially empty
   const emailInputRef = useRef<HTMLInputElement>(null);
   const nameInputRef = useRef<HTMLInputElement>(null); // Ref for name input
 
@@ -75,7 +76,6 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
   // --- NEW: State for Bookings --- END
 
 
-  // --- Listener for Auth State Changes (Supabase) ---
     // --- Listener for Auth State Changes (Supabase) ---
     useEffect(() => {
       setLoading(true);
@@ -84,7 +84,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
         if (error) console.error("Error getting initial session:", error.message);
         const initialUser = session?.user ?? null;
         setCurrentUser(initialUser); // Set initial user state
-  
+
         if (!initialUser) {
            resetAuthState(false); // Reset if no user initially
            setLoading(false); // Indicate auth check done (no user)
@@ -100,19 +100,19 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
         // setLoading(false); // Let the listener handle setting loading false after potential async ops
       });
       // --- Initial session check --- END
-  
+
       const { data: authListener } = supabase.auth.onAuthStateChange(
         (event, session) => {
           const user = session?.user ?? null;
           const previousUserId = currentUser?.id; // Capture previous user ID *before* updating currentUser
           setCurrentUser(user); // Update user state
-  
+
           // Set loading to false once the listener confirms the auth state
           // (covers initial load SIGNED_IN/INITIAL_SESSION and subsequent changes)
           setLoading(false);
-  
+
           console.log('Auth Event:', event, 'User:', user?.id, 'Previous User ID:', previousUserId); // Debug log
-  
+
           if (event === 'SIGNED_OUT' || !user) {
             console.log('Auth Event: SIGNED_OUT or user is null. Resetting state.');
             resetAuthState(); // This now also clears booking state and activeSection
@@ -128,7 +128,7 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
                    setFormData({ email: '', password: '', full_name: '', phone: '', date_of_birth: '', aadhar_number: '' });
                }
                setIsSigningUp(false); // Ensure we are in login mode view
-  
+
                // --- Fetch bookings and set default section ---
                // Check if the user ID actually changed OR if the user just appeared (was null before)
                if (user && user.id !== previousUserId) {
@@ -161,14 +161,14 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
           // Handle other events like PASSWORD_RECOVERY if needed
         }
       );
-  
+
       return () => {
         console.log("Unsubscribing auth listener.");
         authListener?.subscription.unsubscribe();
       };
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []); // Empty dependency array is correct for onAuthStateChange setup
-  
+
     // Helper to reset state (now resets formData AND booking state)
     const resetAuthState = (clearFeedback = true) => {
         console.log("Resetting Auth State. Clearing activeSection, form data, and booking data."); // Debug log
@@ -184,9 +184,6 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
         setIsLoadingBookings(false); // Ensure booking loading state is reset
         // --- Also clear booking data on reset --- END
     }
-  
-  // Rest of your component code...
-    
 
   // --- Body Scroll Lock ---
   useEffect(() => {
@@ -452,7 +449,8 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
                   drop_location_type,
                   booking_status,
                   train_number,
-                  pnr_number
+                  pnr_number,
+                  user_id
               `) // Select only the columns you need
               .eq('user_id', userId)
               .order('created_at', { ascending: false }); // Get the most recent first
@@ -651,7 +649,9 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
                                             <p className="text-xs text-gray-600 truncate" title={`${booking.drop_address} (${booking.drop_location_type})`}>
                                                 <span className="font-medium">To:</span> {booking.drop_address} ({booking.drop_location_type})
                                             </p>
-                                            {/* *** COMMENTED OUT BUTTON REMOVED HERE *** */}
+                                            {/* Optional: Add a button here if needed, e.g., View Details
+                                            <button className="text-xs text-orange-600 hover:underline mt-1">View Details</button>
+                                            */}
                                         </li>
                                     ))}
                                 </ul>
@@ -677,6 +677,24 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
                                         <p><span className="font-medium">Drop-off:</span> {latestBooking.drop_address}</p>
                                         {/* Add more specific tracking steps if your backend provides them */}
                                         <p className="mt-4 text-xs text-gray-500">Tracking details are based on the latest updates received.</p>
+
+                                        {/* --- START: Mini Map Integration --- */}
+                                        <div className="mt-4 pt-3 border-t border-gray-200">
+                                            <h4 className="text-sm font-medium mb-2 text-gray-700">Route Overview</h4>
+                                            {/* Replace with your preferred map embed method. This uses Google Maps Embed API */}
+                                            {/* Ensure the locations in the 'src' URL are correct (Visakhapatnam & Hyderabad) */}
+                                            <iframe
+                                                title="Visakhapatnam to Hyderabad Map"
+                                                className="w-full h-48 border-0 rounded-lg shadow-sm" // Adjusted height and added shadow
+                                                loading="lazy"
+                                                allowFullScreen
+                                                referrerPolicy="no-referrer-when-downgrade"
+                                                src="https://www.google.com/maps/embed?pb=!1m28!1m12!1m3!1d7780448.910832964!2d78.09693635583463!3d17.52679556328318!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!4m13!3e6!4m5!1s0x3a39431389e6973f%3A0x92d9c20395498468!2sVisakhapatnam%2C%20Andhra%20Pradesh!3m2!1d17.6868159!2d83.2184815!4m5!1s0x3bcb99daeaebd2c7%3A0xae93b78392bafbc2!2sHyderabad%2C%20Telangana!3m2!1d17.385044!2d78.486671!5e0!3m2!1sen!2sin!4v1699123456789" // Example embed URL - replace if needed
+                                            ></iframe>
+                                             <p className="mt-1 text-xs text-gray-500 text-center">Map shows general route Visakhapatnam to Hyderabad.</p>
+                                        </div>
+                                        {/* --- END: Mini Map Integration --- */}
+
                                     </div>
                                 ) : (
                                     // This case should theoretically not be reached if userBookings.length > 0, but included for safety
@@ -725,9 +743,9 @@ const Sidebar: React.FC<SidebarProps> = ({ isOpen, onClose }) => {
                 disabled={loading || isLoadingBookings}
                 className="flex items-center justify-center w-full px-4 py-2 mt-6 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-100 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-1 transition-colors disabled:opacity-50 disabled:cursor-not-allowed" // Added disabled cursor
                >
-                 {/* Show loader if general loading is true AND related to logout (currentUser becomes null) - Adjust logic if needed */}
-                  {(loading && !currentUser) || isLoadingBookings ? <Loader2 size={18} className="mr-2 animate-spin" /> : <LogOut size={18} className="mr-2" />}
-                  {(loading && !currentUser) || isLoadingBookings ? 'Processing...' : 'Logout'}
+                 {/* Show loader if general loading is true OR booking loading is true */}
+                  {(loading || isLoadingBookings) ? <Loader2 size={18} className="mr-2 animate-spin" /> : <LogOut size={18} className="mr-2" />}
+                  {(loading || isLoadingBookings) ? 'Processing...' : 'Logout'}
               </button>
             </div>
           ) : (
